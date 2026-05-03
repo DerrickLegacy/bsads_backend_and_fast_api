@@ -1,266 +1,172 @@
-# Bee Swarming & Abscondment Detection System (BSADS)
+# BSADS — FastAPI Backend Service
 
-Classifies beehive audio recordings into 5 states and alerts farmers in real time.
+**Bee Swarming & Abscondment Detection System**
 
-| State | Meaning | Alert? |
+This is the production API for the BSADS project. It connects farmers' remote audio sensors to a trained ML model, stores inference results, generates alerts, and serves data to the mobile app.
+
+---
+
+## What This Service Does
+
+Beehive audio sensors record sound continuously. This API:
+
+1. Connects to the farmer's external server via SSH and polls for new recordings
+2. Extracts 171 acoustic features from each recording (MFCCs, spectral features, etc.)
+3. Runs the recording through the trained Gradient Boosting model
+4. Stores the result and raises an alert if a dangerous hive state is detected
+5. Serves results to the React Native mobile app
+
+---
+
+## Hive States
+
+| State | Meaning | Alert Generated |
 |---|---|---|
 | `active_colony` | Healthy, normal activity | No |
-| `queenbee_present` | Queen detected | No |
-| `swarming` | Swarm event in progress | **Yes — High** |
-| `missing_queen` | Queen is absent | **Yes — Medium** |
-| `external_noise` | Background noise | No |
+| `queenbee_present` | Queen bee detected | No |
+| `swarming` | Swarm event in progress | **Yes — High priority** |
+| `missing_queen` | Queen is absent | **Yes — Medium priority** |
+| `external_noise` | Background / interference | No |
+
+---
+
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    FARMER'S EXTERNAL SERVER                         │
+│                                                                     │
+│   Audio sensor → /home/farmer/recordings/hive1.wav                 │
+│                                    hive2.wav                        │
+│                                    hive3.wav  ...                   │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │
+                            │  SSH/SFTP (paramiko)
+                            │  every 30 seconds
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    BSADS FastAPI SERVICE                            │
+│                                                                     │
+│  ① Poller detects new .wav files on remote server                  │
+│  ② Downloads file → staging: downloads/{user_id}/{hive_id}/        │
+│  ③ Creates audio_source record (status=pending)                    │
+│  ④ Extracts 171 features using librosa                             │
+│  ⑤ Loads model from HuggingFace Hub (cached after first run)       │
+│  ⑥ Runs inference → hive_state + confidence_score                  │
+│  ⑦ If swarming or missing_queen → creates Alert + Advisory         │
+│  ⑧ Stores everything in PostgreSQL                                 │
+└───────┬──────────────────────────────────────────────────┬──────────┘
+        │                                                  │
+        │  GET /hives/{id}/inferences/latest               │  POST /audio/upload
+        │  GET /hives/{id}/alerts                          │  (manual upload option)
+        ▼                                                  ▼
+┌───────────────────┐                           ┌──────────────────────┐
+│  React Native     │                           │  Farmer uploads      │
+│  Mobile App       │                           │  directly via API    │
+└───────────────────┘                           └──────────────────────┘
+```
+
+### Where the ML model lives
+
+The model (`gradient_boosting_model.pkl`) and encoder (`label_encoder.pkl`) are hosted on HuggingFace Hub at `DerrickLegacy256/bee-audio-classifier`. At startup the API downloads them once and caches them locally — restarts are instant after that.
+
+The ML training pipeline (notebooks, feature extraction, model training) lives in the separate `bee_swarming_audio_classifer/` project. When a new model is trained and pushed to HuggingFace via CI/CD, simply restarting this API picks it up automatically.
+
+---
+
+## Farmer Data Sources — Two Ways Audio Reaches the API
+
+### Option A — SSH polling (primary)
+The farmer provides SSH credentials to their remote server. The API connects every 30 seconds, lists new audio files, downloads them, and runs inference automatically.
+
+Configure via: `POST /hives/{hive_id}/data-source/configure`
+
+### Option B — Direct upload (manual)
+The farmer uploads a recording directly via HTTP.
+
+Upload via: `POST /audio/upload`
 
 ---
 
 ## Quick Start
 
-### 1. Install dependencies
+See [SETUP.md](SETUP.md) for the full installation guide.
+
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+# 1. Clone and install
+git clone <repo-url> && cd bsads_fast_api
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-```
 
-### 2. Configure environment
-Edit `.env`:
-```
-DATABASE_URL=postgresql://bee_user:bee_user@localhost:5432/bee_db
-SECRET_KEY=change-this-in-production
-UPLOAD_DIR=uploads
-```
+# 2. Configure
+cp .env.example .env     # then edit with your DB credentials
 
-### 3. Start the server
-```bash
+# 3. Run
 uvicorn api.main:app --reload --port 8000
 ```
 
-On first run, all database tables are created automatically.
-
-### 4. Open interactive docs
-```
-http://localhost:8000/docs    ← Swagger UI (try endpoints interactively)
-http://localhost:8000/redoc   ← ReDoc (clean readable reference)
-```
+Interactive API docs: http://localhost:8000/docs
 
 ---
 
-## API Usage — Step by Step
-
-### Step 1 — Register a farmer account
-
-```bash
-curl -s -X POST http://localhost:8000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "fullname": "Derrick Ahaabwe",
-    "email": "derrick@bees.ug",
-    "password": "mypassword123",
-    "telephone_number": "+256700000000",
-    "role": "farmer"
-  }' | python3 -m json.tool
-```
-
-Response:
-```json
-{
-  "access_token": "eyJhbGci...",
-  "token_type": "bearer",
-  "user": {
-    "user_id": 1,
-    "fullname": "Derrick Ahaabwe",
-    "email": "derrick@bees.ug",
-    "role": "farmer",
-    "created_at": "2026-04-29T13:10:01"
-  }
-}
-```
-
-**Save the `access_token`** — you need it for every other request.
-
----
-
-### Step 2 — Login (use this if you already have an account)
-
-```bash
-curl -s -X POST http://localhost:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email": "derrick@bees.ug", "password": "mypassword123"}' \
-  | python3 -m json.tool
-```
-
----
-
-### Step 3 — Register a hive
-
-```bash
-TOKEN="paste_your_token_here"
-
-curl -s -X POST http://localhost:8000/hives \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "hive_location": "Kampala, Nakawa",
-    "hive_type": "Langstroth",
-    "installation_date": "2026-01-15T00:00:00"
-  }' | python3 -m json.tool
-```
-
-Response:
-```json
-{
-  "hive_id": 1,
-  "user_id": 1,
-  "hive_location": "Kampala, Nakawa",
-  "hive_type": "Langstroth",
-  "current_state": "unknown"
-}
-```
-
-This also creates a watched folder automatically:
-```
-data_sources/1/1/     ← drop .wav files here (user_id=1, hive_id=1)
-```
-
----
-
-### Step 4a — Upload audio manually
-
-```bash
-curl -s -X POST http://localhost:8000/audio/upload \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@/path/to/hive_recording.wav" \
-  -F "hive_id=1" | python3 -m json.tool
-```
-
-Response (immediate — inference runs in background):
-```json
-{
-  "audio_id": "3f4a1b2c-...",
-  "hive_id": 1,
-  "message": "File received. Inference is running in the background."
-}
-```
-
----
-
-### Step 4b — Drop files into the watched folder (alternative)
-
-Instead of uploading, simply copy audio files into the hive's folder:
-
-```bash
-cp /path/to/recording.wav data_sources/1/1/
-```
-
-The poller checks every 30 seconds and processes any new files automatically.
-Check the data source status:
-
-```bash
-curl -s http://localhost:8000/hives/1/data-source \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-```
-
----
-
-### Step 5 — Get the inference result
-
-Wait 3–5 seconds after upload, then:
-
-```bash
-# Latest result only
-curl -s http://localhost:8000/hives/1/inferences/latest \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-
-# All results (last 20)
-curl -s http://localhost:8000/hives/1/inferences \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-```
-
-Normal hive response:
-```json
-{
-  "inference_id": "a1b2c3...",
-  "hive_id": 1,
-  "hive_state": "active_colony",
-  "confidence_score": 0.9966,
-  "inference_latency_ms": 2341,
-  "created_at": "2026-04-29T13:15:00",
-  "alert": null,
-  "advisory": null
-}
-```
-
-Swarming detected:
-```json
-{
-  "hive_state": "swarming",
-  "confidence_score": 0.983,
-  "alert": {
-    "severity_level": "High",
-    "recommended_action": "Immediate hive inspection required",
-    "action_status": "pending"
-  },
-  "advisory": {
-    "advisory_type": "Reactive",
-    "actions": [
-      { "action_description": "Inspect the hive immediately", "priority_level": "High" },
-      { "action_description": "Prepare a swarm trap nearby", "priority_level": "High" },
-      { "action_description": "Remove swarm cells", "priority_level": "Medium" }
-    ]
-  }
-}
-```
-
----
-
-### Step 6 — View and acknowledge alerts
-
-```bash
-# Pending alerts for a hive
-curl -s http://localhost:8000/hives/1/alerts \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-
-# All alerts including acknowledged
-curl -s "http://localhost:8000/hives/1/alerts?only_pending=false" \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-
-# Acknowledge an alert (farmer has acted on it)
-curl -s -X PATCH http://localhost:8000/hives/1/alerts/<alert_id>/acknowledge \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-```
-
----
-
-## All Endpoints
+## All API Endpoints
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
 | GET | `/` | No | Health check |
-| GET | `/docs` | No | Swagger UI (interactive) |
+| GET | `/docs` | No | Swagger UI |
 | GET | `/redoc` | No | ReDoc reference |
 | POST | `/auth/register` | No | Create farmer account |
-| POST | `/auth/login` | No | Login, get token |
+| POST | `/auth/login` | No | Login, get JWT token |
 | GET | `/auth/me` | Yes | My profile |
-| POST | `/hives` | Yes | Register hive |
+| POST | `/hives` | Yes | Register a hive |
 | GET | `/hives` | Yes | List my hives |
 | GET | `/hives/{id}` | Yes | Get one hive |
-| GET | `/hives/{id}/data-source` | Yes | Data source folder info |
-| POST | `/audio/upload` | Yes | Upload audio file |
-| GET | `/hives/{id}/inferences` | Yes | All results (last 20) |
+| GET | `/hives/{id}/data-source` | Yes | Data source status |
+| POST | `/hives/{id}/data-source/configure` | Yes | Configure SSH data source |
+| POST | `/audio/upload` | Yes | Upload audio file manually |
+| GET | `/hives/{id}/inferences` | Yes | All inference results (last 20) |
 | GET | `/hives/{id}/inferences/latest` | Yes | Most recent result |
 | GET | `/hives/{id}/alerts` | Yes | Pending alerts |
-| PATCH | `/hives/{id}/alerts/{alert_id}/acknowledge` | Yes | Acknowledge alert |
+| PATCH | `/hives/{id}/alerts/{alert_id}/acknowledge` | Yes | Mark alert as acted on |
 
 ---
 
-## Tip — pretty-print all curl responses
+## Project Structure
 
-Add `| python3 -m json.tool` to the end of any curl command:
-```bash
-curl -s http://localhost:8000/ | python3 -m json.tool
+```
+bsads_fast_api/
+├── api/
+│   ├── main.py              ← FastAPI app, APScheduler startup
+│   ├── config.py            ← Settings loaded from .env
+│   ├── database.py          ← SQLAlchemy engine + session
+│   ├── models.py            ← All 11 ORM table definitions
+│   ├── schemas.py           ← Pydantic request/response shapes
+│   ├── inference_engine.py  ← Feature extraction + model prediction
+│   ├── advisory.py          ← Alert + advisory generation rules
+│   ├── processing.py        ← Shared inference pipeline (used by upload + poller)
+│   ├── poller.py            ← Background folder + SSH scanner (every 30s)
+│   ├── ssh_connector.py     ← Paramiko SSH/SFTP connector
+│   └── routers/
+│       ├── auth.py          ← /auth/register, /auth/login, /auth/me
+│       ├── hives.py         ← /hives and /hives/{id}/data-source/configure
+│       ├── audio.py         ← /audio/upload
+│       ├── inferences.py    ← /hives/{id}/inferences
+│       └── alerts.py        ← /hives/{id}/alerts
+├── requirements.txt
+├── Dockerfile
+├── .env                     ← Not committed — create from .env.example
+├── SETUP.md                 ← Full installation guide
+├── TESTING.md               ← End-to-end test walkthrough
+└── API.md                   ← Deep technical documentation
 ```
 
-Or install `jq` for coloured output:
-```bash
-sudo apt install jq
-curl -s http://localhost:8000/ | jq
-```
+---
+
+## Documentation
+
+| File | Contents |
+|---|---|
+| [SETUP.md](SETUP.md) | Prerequisites, PostgreSQL setup, venv, .env config, first run |
+| [TESTING.md](TESTING.md) | Full end-to-end test with SSH simulation, all curl commands |
+| [API.md](API.md) | Deep technical docs: DB schema, inference pipeline, advisory rules |

@@ -46,8 +46,8 @@ async def lifespan(app: FastAPI):
     print("✓ Database tables ready")
     print("✓ Upload directory ready")
     print("✓ data_sources/ folder ready (drop audio files here per hive)")
-    print(f"✓ Model loaded: {settings.model_path}")
-    print("✓ Folder poller started — scanning every 30 seconds")
+    print(f"✓ Model repo: {settings.hf_repo_id}")
+    print("✓ Folder + SSH poller started — scanning every 30 seconds")
 
     yield
 

@@ -33,20 +33,45 @@ class PredictionResult:
 
 
 # ---------------------------------------------------------------------------
-# Download model + encoder from HuggingFace Hub once at startup.
-# hf_hub_download caches files in ~/.cache/huggingface/hub/ so after the
-# first run this is instant — no repeated downloads.
+# Load model + encoder.
+# Tries HuggingFace Hub first (files are cached after the first download).
+# Falls back to local paths so development works without network access
+# or before models have been pushed to HF.
 # ---------------------------------------------------------------------------
-_token = settings.hf_token or None
+_ROOT = Path(__file__).resolve().parent.parent
 
-_model = joblib.load(
-    hf_hub_download(settings.hf_repo_id, "gradient_boosting_model.pkl", token=_token)
-)
-_label_encoder = joblib.load(
-    hf_hub_download(settings.hf_repo_id, "label_encoder.pkl", token=_token)
-)
+# Local search paths (useful when running alongside the training project)
+_LOCAL_CANDIDATES = [
+    _ROOT / "models" / "gradient_boosting_model.pkl",
+    _ROOT.parent / "bee_swarming_audio_classifer" / "models" / "gradient_boosting_model.pkl",
+]
+_LOCAL_ENCODER_CANDIDATES = [
+    _ROOT / "models" / "label_encoder.pkl",
+    _ROOT.parent / "bee_swarming_audio_classifer" / "models" / "label_encoder.pkl",
+]
 
-print(f"✓ Model loaded from HuggingFace: {settings.hf_repo_id}")
+
+def _load_artifact(hf_filename: str, local_candidates: list) -> object:
+    """Try HF Hub first, fall back to local paths."""
+    token = settings.hf_token or None
+    try:
+        path = hf_hub_download(settings.hf_repo_id, hf_filename, token=token)
+        print(f"✓ {hf_filename} loaded from HuggingFace Hub (cached)")
+        return joblib.load(path)
+    except Exception as hf_err:
+        print(f"  HF download failed ({hf_err}) — trying local fallback")
+        for candidate in local_candidates:
+            if candidate.exists():
+                print(f"✓ {hf_filename} loaded from {candidate}")
+                return joblib.load(candidate)
+        raise RuntimeError(
+            f"Could not load {hf_filename}. "
+            "Either push models to HuggingFace or place them in models/."
+        )
+
+
+_model         = _load_artifact("gradient_boosting_model.pkl", _LOCAL_CANDIDATES)
+_label_encoder = _load_artifact("label_encoder.pkl",           _LOCAL_ENCODER_CANDIDATES)
 
 
 # ---------------------------------------------------------------------------
