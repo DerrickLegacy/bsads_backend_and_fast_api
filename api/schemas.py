@@ -57,6 +57,20 @@ class HiveResponse(BaseModel):
         from_attributes = True
 
 
+class HiveCreateResponse(HiveResponse):
+    """Returned only on POST /hives — includes the suggested remote folder path.
+
+    The mobile app should show this to the farmer when they go to configure
+    their SSH data source, so they know exactly where on their server to
+    point their audio sensor.
+
+    Convention (relative to the farmer's recording base path):
+        farmer_{user_id}/hive_{hive_id}/
+    e.g. on the simulation server: /home/farmer/recordings/farmer_1/hive_1/
+    """
+    suggested_remote_folder: str
+
+
 # ---------------------------------------------------------------------------
 # Audio upload response  (returned immediately after upload)
 # The actual inference result comes via the inferences endpoint
@@ -141,7 +155,9 @@ class DataSourceConfigureSSH(BaseModel):
     ssh_username: str
     ssh_password: Optional[str] = None
     ssh_private_key: Optional[str] = None   # full PEM string
-    remote_folder: str                       # e.g. "/home/pi/hive_audio"
+    remote_folder: str                       # absolute path on the remote server
+                                             # recommended convention:
+                                             # /home/farmer/recordings/farmer_{user_id}/hive_{hive_id}
 
 
 class DataSourceConfigureResponse(BaseModel):

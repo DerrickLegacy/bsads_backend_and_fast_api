@@ -1,17 +1,19 @@
 """
-Folder-watch and SSH poller.
+Two-phase poller — runs as two independent APScheduler jobs.
 
-Runs every 30 seconds (via APScheduler). Supports two source types:
+Job 1 — scan_all_sources()          (every 30 s)
+  Discovers new audio files on the external server (SSH) or a watched
+  local folder.  For each new file it creates an AudioSource row with
+  status="pending" and stops — no inference here.
 
-  'folder' — watches a local folder that the farmer (or their device) drops
-             audio files into.  Path: data_sources/{user_id}/{hive_id}/
+Job 2 — process_pending_sources()   (every 30 s, offset by 10 s)
+  Picks up every AudioSource row whose status is still "pending",
+  fetches the raw audio bytes (via SSH for remote sources, direct
+  file-read for local folders / manual uploads), and POSTs them to the
+  HuggingFace Inference API through process_audio_file().
 
-  'ssh'    — connects to the farmer's remote server via SFTP, downloads any
-             new audio files to a local staging area, then runs inference.
-             Credentials stored in FarmerDataSource.connection_config (JSON).
-
-Both paths funnel into process_audio_file() so inference, alert generation,
-and DB writes are identical regardless of how the audio arrived.
+This separation means discovery and inference never block each other and
+the pending queue is visible in the DB at all times.
 """
 
 from datetime import datetime
@@ -27,8 +29,12 @@ from api.processing import process_audio_file
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac"}
 
 
+# ---------------------------------------------------------------------------
+# Job 1 — Discovery
+# ---------------------------------------------------------------------------
+
 def scan_all_sources() -> None:
-    """Entry point called by APScheduler every 30 seconds."""
+    """Discover new audio files and register them as pending."""
     db: Session = SessionLocal()
     try:
         sources = (
@@ -48,50 +54,43 @@ def scan_all_sources() -> None:
 
 
 def _known_paths_for_hive(hive_id: int, db: Session) -> set:
-    """Return set of source_url strings already registered for this hive."""
+    """Return every source_url already registered for this hive, regardless of status.
+
+    Including 'failed' records prevents the discovery job from endlessly
+    re-queuing a file that cannot be processed.
+    """
     return {
         row.source_url
         for row in db.query(AudioSource.source_url)
-        .filter(
-            AudioSource.hive_id == hive_id,
-            AudioSource.status != "failed",
-        )
+        .filter(AudioSource.hive_id == hive_id)
         .all()
     }
 
 
-def _register_and_process(audio_file: Path, source_url: str, source: FarmerDataSource, db: Session) -> None:
-    """Create an AudioSource record and kick off inference."""
+def _register_pending(source_url: str, file_format: str, source: FarmerDataSource, db: Session) -> None:
+    """Insert an AudioSource row with status='pending'. No inference is triggered here."""
     record = AudioSource(
         hive_id     = source.hive_id,
         source_url  = source_url,
-        file_format = audio_file.suffix.lstrip(".").lower(),
+        file_format = file_format,
         status      = "pending",
     )
     db.add(record)
     db.commit()
-    db.refresh(record)
-
-    print(f"[POLLER/{source.source_type}] hive={source.hive_id} → {audio_file.name}")
-    process_audio_file(record.audio_id, audio_file, source.hive_id)
+    print(f"[POLLER/{source.source_type}] hive={source.hive_id} registered pending → {source_url}")
 
 
 def _scan_folder(source: FarmerDataSource, db: Session) -> None:
+    """Watch a local folder for new audio files."""
     folder = Path(source.source_path)
     if not folder.exists():
         return
 
     known = _known_paths_for_hive(source.hive_id, db)
 
-    new_files = [
-        f for f in folder.iterdir()
-        if f.is_file()
-        and f.suffix.lower() in AUDIO_EXTENSIONS
-        and str(f) not in known
-    ]
-
-    for audio_file in new_files:
-        _register_and_process(audio_file, str(audio_file), source, db)
+    for f in folder.iterdir():
+        if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS and str(f) not in known:
+            _register_pending(str(f), f.suffix.lstrip(".").lower(), source, db)
 
     source.last_scanned_at = datetime.utcnow()
     db.commit()
@@ -99,36 +98,94 @@ def _scan_folder(source: FarmerDataSource, db: Session) -> None:
 
 def _scan_ssh(source: FarmerDataSource, db: Session) -> None:
     """
-    Download new audio files from the farmer's remote server via SFTP,
-    then run inference on each one.
+    List audio files on the farmer's remote server via SFTP.
 
-    Downloaded files are staged at:  downloads/{user_id}/{hive_id}/
-
-    source_url stored in audio_sources = the *remote* path, so we can
-    track which remote files we've already processed even after a restart.
+    Only the remote path is recorded (as source_url).  The actual audio
+    bytes are NOT downloaded here — that happens in process_pending_sources().
     """
     config = source.connection_config
     if not config:
         print(f"[POLLER/ssh] hive={source.hive_id}: no connection_config — skipping")
         return
 
-    from api.ssh_connector import download_new_files
+    import paramiko
+    from api.ssh_connector import _build_client
 
-    staging_dir = ROOT / "downloads" / str(source.user_id) / str(source.hive_id)
     known = _known_paths_for_hive(source.hive_id, db)
+    remote_folder = config.get("remote_folder", "/").rstrip("/")
 
     try:
-        local_files = download_new_files(config, known, staging_dir)
+        client = _build_client(config)
+        sftp = client.open_sftp()
+        try:
+            remote_files = sftp.listdir_attr(remote_folder)
+            for attr in remote_files:
+                filename = attr.filename
+                if Path(filename).suffix.lower() not in AUDIO_EXTENSIONS:
+                    continue
+                remote_path = f"{remote_folder}/{filename}"
+                if remote_path not in known:
+                    fmt = Path(filename).suffix.lstrip(".").lower()
+                    _register_pending(remote_path, fmt, source, db)
+        finally:
+            sftp.close()
+            client.close()
     except Exception as exc:
         print(f"[POLLER/ssh] hive={source.hive_id}: SSH error — {exc}")
-        source.last_scanned_at = datetime.utcnow()
-        db.commit()
-        return
-
-    remote_folder = config.get("remote_folder", "").rstrip("/")
-    for local_path in local_files:
-        remote_path = f"{remote_folder}/{local_path.name}"
-        _register_and_process(local_path, remote_path, source, db)
 
     source.last_scanned_at = datetime.utcnow()
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Job 2 — Processing
+# ---------------------------------------------------------------------------
+
+def process_pending_sources() -> None:
+    """
+    Pick up every pending AudioSource, fetch its audio bytes, and send
+    them to the HuggingFace Inference API via process_audio_file().
+    """
+    db: Session = SessionLocal()
+    try:
+        pending = (
+            db.query(AudioSource)
+            .filter(AudioSource.status == "pending")
+            .all()
+        )
+        for record in pending:
+            try:
+                audio_bytes = _fetch_audio_bytes(record, db)
+                # process_audio_file opens its own session — close ours first
+                # to avoid two sessions on the same record
+                db.close()
+                process_audio_file(record.audio_id, audio_bytes, record.hive_id)
+                db = SessionLocal()   # reopen for the next iteration
+            except Exception as exc:
+                print(f"[POLLER] failed to process audio {record.audio_id}: {exc}")
+    except Exception as exc:
+        print(f"[POLLER] process_pending error: {exc}")
+    finally:
+        db.close()
+
+
+def _fetch_audio_bytes(record: AudioSource, db: Session) -> bytes:
+    """
+    Return the raw audio bytes for a pending AudioSource.
+
+    - For SSH sources  : download the file from the remote server on demand.
+    - For folder / manual uploads : read directly from the local path stored
+      in source_url.
+    """
+    data_source = (
+        db.query(FarmerDataSource)
+        .filter(FarmerDataSource.hive_id == record.hive_id)
+        .first()
+    )
+
+    if data_source and data_source.source_type == "ssh":
+        from api.ssh_connector import download_file_bytes
+        return download_file_bytes(data_source.connection_config, record.source_url)
+
+    # Local path — folder source or manual upload
+    return Path(record.source_url).read_bytes()

@@ -6,49 +6,45 @@ Everything you need to get the server running from scratch.
 
 ## Prerequisites
 
-| Requirement | Version | Notes |
-|---|---|---|
-| Python | 3.10+ | Use `python3 --version` to check |
-| PostgreSQL | 14+ | Must be running before the API starts |
-| libsndfile | any | Required by librosa for audio processing |
-| ffmpeg | any | Required by librosa for non-WAV formats |
+| Requirement | Version | Notes                                    |
+| ----------- | ------- | ---------------------------------------- |
+| Python      | 3.10+   | Use `python3 --version` to check         |
+| PostgreSQL  | 14+     | Must be running before the API starts    |
 
-Install system dependencies on Ubuntu/Debian:
+Install on Ubuntu/Debian:
 
 ```bash
 sudo apt update
-sudo apt install -y libsndfile1 ffmpeg postgresql postgresql-contrib
+sudo apt install -y postgresql postgresql-contrib
 ```
+
+> **Note:** `librosa`, `ffmpeg`, and `libsndfile` are **not required** — audio feature extraction
+> runs inside the HuggingFace Gradio Space, not locally. The API only sends raw audio bytes over HTTP.
 
 ---
 
 ## Step 1 — Create the PostgreSQL database
 
-The API connects to a PostgreSQL database called `bee_db` using the credentials `bee_user / bee_user`.
+The API connects to a database called `bee_db` with credentials `bee_user / bee_user`.
 
 Open a `psql` shell and run:
 
 ```sql
--- Create the database user
 CREATE USER bee_user WITH PASSWORD 'bee_user';
-
--- Create the database owned by that user
 CREATE DATABASE bee_db OWNER bee_user;
-
--- Grant all privileges
 GRANT ALL PRIVILEGES ON DATABASE bee_db TO bee_user;
 ```
 
-To verify it worked:
+Verify it worked:
+
 ```bash
 psql -U bee_user -d bee_db -c "\dt"
-# Should connect without errors (tables will be empty — they are created by the API on first run)
+# Should connect without errors (tables are created by the API on first run)
 ```
 
 If PostgreSQL is not running:
+
 ```bash
-sudo service postgresql start
-# or
 sudo systemctl start postgresql
 ```
 
@@ -57,7 +53,7 @@ sudo systemctl start postgresql
 ## Step 2 — Create a Python virtual environment
 
 ```bash
-cd /path/to/bsads_fast_api
+cd /path/to/bsads_backend_and_fast_api
 
 python3 -m venv venv
 source venv/bin/activate        # Linux / macOS
@@ -67,56 +63,55 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-This installs all dependencies: FastAPI, SQLAlchemy, librosa, scikit-learn, paramiko, apscheduler, and others.
-
 ---
 
 ## Step 3 — Configure the environment file
-
-Create `.env` in the project root (copy the example below):
 
 ```bash
 cp .env.example .env
 ```
 
-Then edit `.env`:
+Edit `.env` — the required values are marked below:
 
 ```env
-# HuggingFace — used to download the model at startup
-# Get your token at https://huggingface.co/settings/tokens
-HF_TOKEN=hf_your_token_here
+# ── Required ──────────────────────────────────────────────────────────────────
 
-# PostgreSQL connection string
 DATABASE_URL=postgresql://bee_user:bee_user@localhost:5432/bee_db
 
-# JWT secret — change this in production to a long random string
-SECRET_KEY=change-this-to-a-long-random-secret-in-production
+# Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
+SECRET_KEY=your-long-random-secret-here
+
+# The HuggingFace Gradio Space that runs inference
+HF_SPACE_NAME=DerrickLegacy256/bee-audio-classifier
+
+# ── Optional ──────────────────────────────────────────────────────────────────
+
+# HF read token — required only if your Space is private
+HF_TOKEN=
+
+# HF write token — only needed for CI/CD model pushes, not for running the API
+HF_WRITE_TOKEN=
+
+# HF model repository (informational — CI/CD use only)
+HF_MODEL_ID=DerrickLegacy256/bee_swarming_and_absconment
 
 # Folder where manually uploaded audio files are saved
 UPLOAD_DIR=uploads
+
+# Poller timing (seconds) — increase if HF Space is slow to respond
+POLL_INTERVAL_SECONDS=30
+POLL_OFFSET_SECONDS=10
+INFERENCE_TIMEOUT_SECONDS=240
 ```
 
 **Do not commit `.env` to git.** It is already in `.gitignore`.
-
-### Create `.env.example` for teammates
-
-```bash
-cat > .env.example << 'EOF'
-HF_TOKEN=
-DATABASE_URL=postgresql://bee_user:bee_user@localhost:5432/bee_db
-SECRET_KEY=change-this-in-production
-UPLOAD_DIR=uploads
-EOF
-```
 
 ---
 
 ## Step 4 — Start the server
 
 ```bash
-# Make sure venv is activated
 source venv/bin/activate
-
 uvicorn api.main:app --reload --port 8000
 ```
 
@@ -125,18 +120,18 @@ On first run you should see:
 ```
 INFO:     Started server process [12345]
 INFO:     Waiting for application startup.
-✓ gradient_boosting_model.pkl loaded from HuggingFace Hub (cached)
-✓ label_encoder.pkl loaded from HuggingFace Hub (cached)
 ✓ Database tables ready
 ✓ Upload directory ready
 ✓ data_sources/ folder ready (drop audio files here per hive)
-✓ Model repo: DerrickLegacy256/bee-audio-classifier
-✓ Folder + SSH poller started — scanning every 30 seconds
+✓ HuggingFace Space: DerrickLegacy256/bee-audio-classifier
+✓ Discovery poller started — scanning every 30 seconds
+✓ Inference poller started — processing pending records every 30 seconds
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000
 ```
 
-The model is downloaded from HuggingFace on the first startup and cached at `~/.cache/huggingface/hub/`. Subsequent starts load from cache — no internet required after the first run.
+> The HuggingFace Gradio client connects lazily — it will only establish a connection on the
+> first inference call, not at startup. This prevents a crash if the Space is waking up.
 
 ---
 
@@ -158,6 +153,7 @@ Expected response:
 ```
 
 Open interactive API docs in your browser:
+
 - **http://localhost:8000/docs** — Swagger UI (try all endpoints here)
 - **http://localhost:8000/redoc** — ReDoc (cleaner reading)
 
@@ -170,41 +166,55 @@ docker build -t bsads-api .
 docker run -p 8000:8000 \
   -e DATABASE_URL=postgresql://bee_user:bee_user@host.docker.internal:5432/bee_db \
   -e SECRET_KEY=your-secret \
+  -e HF_SPACE_NAME=DerrickLegacy256/bee-audio-classifier \
   -e HF_TOKEN=your-hf-token \
   bsads-api
 ```
 
-Note: `host.docker.internal` points to your host machine's PostgreSQL from inside the container. On Linux you may need to use `--network host` instead.
+On Linux use `--network host` instead of `host.docker.internal` for the DB connection.
 
 ---
 
 ## Troubleshooting
 
 ### "could not connect to server" on startup
-PostgreSQL is not running. Start it:
+
+PostgreSQL is not running:
+
 ```bash
-sudo service postgresql start
+sudo systemctl start postgresql
 ```
 
 ### "FATAL: role bee_user does not exist"
+
 The database user was not created. Re-run Step 1.
 
-### "No module named 'librosa'" or similar
-The venv is not activated, or `pip install -r requirements.txt` did not complete.
+### "No module named …" or import errors
+
+The venv is not activated, or `pip install -r requirements.txt` did not complete:
+
 ```bash
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Model fails to download from HuggingFace
-Check your `HF_TOKEN` in `.env`. For public repos the token is optional, but set it anyway.
-The API also falls back to local model files — place `gradient_boosting_model.pkl` and
-`label_encoder.pkl` in a `models/` folder in the project root if needed.
+### "ValidationError: 1 validation error for Settings — secret_key — Field required"
+
+`SECRET_KEY` is not set in your `.env`. Add it and restart.
+
+### "ValidationError … hf_space_name — Field required"
+
+`HF_SPACE_NAME` is not set in your `.env`. Add it and restart.
+
+### Inference times out or returns no result
+
+- The HuggingFace Space may be sleeping (free tier spins down after inactivity).
+  Visit the Space URL in a browser to wake it up, then re-upload or wait for the next poll cycle.
+- Increase `INFERENCE_TIMEOUT_SECONDS` in `.env` if you have a slow connection.
 
 ### Port 8000 already in use
+
 ```bash
-# Find what is using it
-lsof -i :8000
-# Kill it, or run on a different port
-uvicorn api.main:app --reload --port 8001
+lsof -i :8000          # find what is using it
+uvicorn api.main:app --reload --port 8001   # or run on a different port
 ```

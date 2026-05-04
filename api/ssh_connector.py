@@ -72,6 +72,23 @@ def test_connection(config: dict) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def download_file_bytes(config: dict, remote_path: str) -> bytes:
+    """
+    Open a single remote file over SFTP and return its contents as bytes.
+
+    Used by the processing job to fetch audio for a pending AudioSource
+    whose source_url is a remote path (ssh source type).
+    """
+    client = _build_client(config)
+    sftp = client.open_sftp()
+    try:
+        with sftp.open(remote_path, "rb") as fh:
+            return fh.read()
+    finally:
+        sftp.close()
+        client.close()
+
+
 def download_new_files(
     config: dict,
     known_paths: set,

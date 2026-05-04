@@ -18,18 +18,30 @@ from fastapi.responses import HTMLResponse
 
 from api.config import ROOT, settings
 from api.database import Base, engine
-from api.poller import scan_all_sources
+from api.poller import process_pending_sources, scan_all_sources
 from api.routers import alerts, audio, auth, hives, inferences
 
 # ---------------------------------------------------------------------------
 # Background scheduler — scans farmer data source folders every 30 seconds
 # ---------------------------------------------------------------------------
 _scheduler = BackgroundScheduler()
+
+# Job 1 — discover new files on SSH / local folder, register as pending
 _scheduler.add_job(
     scan_all_sources,
     trigger="interval",
-    seconds=30,
-    id="folder_poller",
+    seconds=settings.poll_interval_seconds,
+    id="discovery_poller",
+    replace_existing=True,
+)
+
+# Job 2 — pick up pending records, fetch bytes, call HuggingFace Inference API
+_scheduler.add_job(
+    process_pending_sources,
+    trigger="interval",
+    seconds=settings.poll_interval_seconds,
+    start_date=f"2000-01-01 00:00:{settings.poll_offset_seconds:02d}",
+    id="inference_poller",
     replace_existing=True,
 )
 
@@ -46,8 +58,9 @@ async def lifespan(app: FastAPI):
     print("✓ Database tables ready")
     print("✓ Upload directory ready")
     print("✓ data_sources/ folder ready (drop audio files here per hive)")
-    print(f"✓ Model repo: {settings.hf_repo_id}")
-    print("✓ Folder + SSH poller started — scanning every 30 seconds")
+    print(f"✓ HuggingFace Space: {settings.hf_space_name}")
+    print("✓ Discovery poller started — scanning every 30 seconds")
+    print("✓ Inference poller started — will process pending records every 30 seconds")
 
     yield
 
@@ -59,7 +72,7 @@ app = FastAPI(
     title="Bee Swarming & Abscondment Detection API",
     description=(
         "Classifies hive audio recordings into five states: "
-        "active_colony | swarming | missing_queen | queenbee_present | external_noise. "
+        "active_colony | swarming | missing_queen | queenbee_present | external_noise | pest infested s. "
         "Generates alerts and advisory checklists for farmers."
     ),
     version="1.1.0",

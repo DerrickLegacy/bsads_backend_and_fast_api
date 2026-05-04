@@ -70,11 +70,12 @@ async def upload_audio(
     db.commit()
     db.refresh(audio_record)
 
-    # Queue background inference
+    # Read bytes now (file handle is closed after the request) and queue inference
+    audio_bytes = save_path.read_bytes()
     background_tasks.add_task(
         process_audio_file,
         audio_record.audio_id,
-        save_path,
+        audio_bytes,
         hive_id,
     )
 

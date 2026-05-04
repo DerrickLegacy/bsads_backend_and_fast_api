@@ -4,14 +4,23 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     database_url: str
-    secret_key: str = "change-me-in-production"
+    secret_key: str                      # required — no insecure default
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60 * 24  # 1 day
+    access_token_expire_minutes: int = 60 * 24   # 1 day
     upload_dir: str = "uploads"
 
-    # HuggingFace Hub — model is downloaded at startup and cached locally
-    hf_repo_id: str = "DerrickLegacy256/bee-audio-classifier"
-    hf_token: str = ""   # optional for public repos; set HF_TOKEN= in .env for private
+    # HuggingFace Gradio Space — audio bytes are sent here for classification
+    hf_space_name: str                   # required — set HF_SPACE_NAME in .env
+    hf_token: str = ""                   # set HF_TOKEN in .env if the Space is private
+    hf_write_token: str = ""             # optional — only needed for CI/CD model pushes
+    hf_model_id: str = ""               # HF model repo (informational / CI use)
+
+    # Background poller timing
+    poll_interval_seconds: int = 30      # how often discovery + inference jobs run
+    poll_offset_seconds: int = 10        # offset so inference runs after discovery
+
+    # HuggingFace Gradio client timeout
+    inference_timeout_seconds: int = 240
 
     class Config:
         env_file = ".env"

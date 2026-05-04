@@ -1,0 +1,2 @@
+ssh -p 2222 farmer@localhost
+password: farmerpass123

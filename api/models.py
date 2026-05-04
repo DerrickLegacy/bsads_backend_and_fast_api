@@ -25,13 +25,13 @@ def new_uuid():
 class User(Base):
     __tablename__ = "users"
 
-    user_id          = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    fullname         = Column(String(100), nullable=False)
+    user_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    fullname = Column(String(100), nullable=False)
     telephone_number = Column(String(15))
-    email            = Column(String(100), unique=True, nullable=False, index=True)
-    password_hash    = Column(String(255), nullable=False)
-    role             = Column(String(30), default="farmer")   # farmer | admin
-    created_at       = Column(DateTime, default=datetime.utcnow)
+    email = Column(String(100), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(String(30), default="farmer")   # farmer | admin
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     hives = relationship("Hive", back_populates="owner")
 
@@ -42,20 +42,20 @@ class User(Base):
 class Hive(Base):
     __tablename__ = "hives"
 
-    hive_id           = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id           = Column(Integer, ForeignKey("users.user_id"), nullable=False)
-    hive_location     = Column(String(150))
-    hive_type         = Column(String(50))
+    hive_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    hive_location = Column(String(150))
+    hive_type = Column(String(50))
     installation_date = Column(DateTime)
-    current_state     = Column(String(30), default="unknown")
+    current_state = Column(String(30), default="unknown")
 
-    owner            = relationship("User", back_populates="hives")
-    audio_sources    = relationship("AudioSource", back_populates="hive")
+    owner = relationship("User", back_populates="hives")
+    audio_sources = relationship("AudioSource", back_populates="hive")
     inference_results = relationship("InferenceResult", back_populates="hive")
-    alerts           = relationship("Alert", back_populates="hive")
-    advisories       = relationship("Advisory", back_populates="hive")
-    env_records      = relationship("EnvironmentalData", back_populates="hive")
-    image_spectra    = relationship("ImageSpectrum", back_populates="hive")
+    alerts = relationship("Alert", back_populates="hive")
+    advisories = relationship("Advisory", back_populates="hive")
+    env_records = relationship("EnvironmentalData", back_populates="hive")
+    image_spectra = relationship("ImageSpectrum", back_populates="hive")
 
 
 # ---------------------------------------------------------------------------
@@ -66,18 +66,20 @@ class Hive(Base):
 class AudioSource(Base):
     __tablename__ = "audio_sources"
 
-    audio_id            = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    hive_id             = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    source_url          = Column(String(255), nullable=False)
-    file_format         = Column(String(20), default="wav")
-    duration_second     = Column(Numeric(6, 2))
-    captured_at         = Column(DateTime, default=datetime.utcnow)
+    audio_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
+    source_url = Column(String(255), nullable=False)
+    file_format = Column(String(20), default="wav")
+    duration_second = Column(Numeric(6, 2))
+    captured_at = Column(DateTime, default=datetime.utcnow)
     ingestion_time_stamp = Column(DateTime, default=datetime.utcnow)
-    status              = Column(String(20), default="pending")
+    status = Column(String(20), default="pending")
 
-    hive             = relationship("Hive", back_populates="audio_sources")
-    feature_vectors  = relationship("FeatureVector", back_populates="audio_source")
-    image_spectra    = relationship("ImageSpectrum", back_populates="audio_source")
+    hive = relationship("Hive", back_populates="audio_sources")
+    feature_vectors = relationship(
+        "FeatureVector", back_populates="audio_source")
+    image_spectra = relationship(
+        "ImageSpectrum", back_populates="audio_source")
 
 
 # ---------------------------------------------------------------------------
@@ -86,11 +88,12 @@ class AudioSource(Base):
 class EnvironmentalData(Base):
     __tablename__ = "environmental_data"
 
-    env_record_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    hive_id       = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    humidity      = Column(Numeric(5, 2))
-    temperature   = Column(Numeric(5, 2))
-    recorded_at   = Column(DateTime, default=datetime.utcnow)
+    env_record_id = Column(UUID(as_uuid=False),
+                           primary_key=True, default=new_uuid)
+    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
+    humidity = Column(Numeric(5, 2))
+    temperature = Column(Numeric(5, 2))
+    recorded_at = Column(DateTime, default=datetime.utcnow)
 
     hive = relationship("Hive", back_populates="env_records")
 
@@ -103,20 +106,24 @@ class EnvironmentalData(Base):
 class FeatureVector(Base):
     __tablename__ = "feature_vectors"
 
-    feature_id            = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    hive_id               = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    audio_id              = Column(UUID(as_uuid=False), ForeignKey("audio_sources.audio_id"), nullable=False)
-    mfcc_value            = Column(Text)       # JSON array of all MFCC coefficients
-    spectral_centroid     = Column(Float)
-    spectral_bandwidth    = Column(Float)
-    signal_energy         = Column(Float)
-    zero_crossing_rate    = Column(Float)
+    feature_id = Column(UUID(as_uuid=False),
+                        primary_key=True, default=new_uuid)
+    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
+    audio_id = Column(UUID(as_uuid=False), ForeignKey(
+        "audio_sources.audio_id"), nullable=False)
+    mfcc_value = Column(Text)       # JSON array of all MFCC coefficients
+    spectral_centroid = Column(Float)
+    spectral_bandwidth = Column(Float)
+    signal_energy = Column(Float)
+    zero_crossing_rate = Column(Float)
     temperature_normalised = Column(Float)
-    humidity_normalised   = Column(Float)
-    created_at            = Column(DateTime, default=datetime.utcnow)
+    humidity_normalised = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    audio_source     = relationship("AudioSource", back_populates="feature_vectors")
-    inference_result = relationship("InferenceResult", back_populates="feature_vector", uselist=False)
+    audio_source = relationship(
+        "AudioSource", back_populates="feature_vectors")
+    inference_result = relationship(
+        "InferenceResult", back_populates="feature_vector", uselist=False)
 
 
 # ---------------------------------------------------------------------------
@@ -127,18 +134,22 @@ class FeatureVector(Base):
 class InferenceResult(Base):
     __tablename__ = "inference_results"
 
-    inference_id        = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    hive_id             = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    feature_id          = Column(UUID(as_uuid=False), ForeignKey("feature_vectors.feature_id"), nullable=False)
-    hive_state          = Column(String(30), nullable=False)
-    confidence_score    = Column(Numeric(5, 4), nullable=False)
+    inference_id = Column(UUID(as_uuid=False),
+                          primary_key=True, default=new_uuid)
+    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
+    feature_id = Column(UUID(as_uuid=False), ForeignKey(
+        "feature_vectors.feature_id"), nullable=True)
+    hive_state = Column(String(30), nullable=False)
+    confidence_score = Column(Numeric(5, 4), nullable=False)
     inference_latency_ms = Column(Integer)
-    created_at          = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    hive           = relationship("Hive", back_populates="inference_results")
-    feature_vector = relationship("FeatureVector", back_populates="inference_result")
-    alert          = relationship("Alert", back_populates="inference", uselist=False)
-    advisory       = relationship("Advisory", back_populates="inference", uselist=False)
+    hive = relationship("Hive", back_populates="inference_results")
+    feature_vector = relationship(
+        "FeatureVector", back_populates="inference_result")
+    alert = relationship("Alert", back_populates="inference", uselist=False)
+    advisory = relationship(
+        "Advisory", back_populates="inference", uselist=False)
 
 
 # ---------------------------------------------------------------------------
@@ -148,15 +159,16 @@ class InferenceResult(Base):
 class Alert(Base):
     __tablename__ = "alerts"
 
-    alert_id           = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    hive_id            = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    inference_id       = Column(UUID(as_uuid=False), ForeignKey("inference_results.inference_id"), nullable=False)
-    severity_level     = Column(String(20), nullable=False)   # High | Medium | Low
+    alert_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
+    inference_id = Column(UUID(as_uuid=False), ForeignKey(
+        "inference_results.inference_id"), nullable=False)
+    severity_level = Column(String(20), nullable=False)   # High | Medium | Low
     recommended_action = Column(Text)
-    action_status      = Column(String(20), default="pending")
-    generated_at       = Column(DateTime, default=datetime.utcnow)
+    action_status = Column(String(20), default="pending")
+    generated_at = Column(DateTime, default=datetime.utcnow)
 
-    hive      = relationship("Hive", back_populates="alerts")
+    hive = relationship("Hive", back_populates="alerts")
     inference = relationship("InferenceResult", back_populates="alert")
 
 
@@ -167,14 +179,16 @@ class Alert(Base):
 class Advisory(Base):
     __tablename__ = "advisories"
 
-    advisory_id   = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    inference_id  = Column(UUID(as_uuid=False), ForeignKey("inference_results.inference_id"), nullable=False)
-    hive_id       = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
+    advisory_id = Column(UUID(as_uuid=False),
+                         primary_key=True, default=new_uuid)
+    inference_id = Column(UUID(as_uuid=False), ForeignKey(
+        "inference_results.inference_id"), nullable=False)
+    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
     advisory_type = Column(String(30))
 
-    hive      = relationship("Hive", back_populates="advisories")
+    hive = relationship("Hive", back_populates="advisories")
     inference = relationship("InferenceResult", back_populates="advisory")
-    actions   = relationship("AdvisoryAction", back_populates="advisory")
+    actions = relationship("AdvisoryAction", back_populates="advisory")
 
 
 # ---------------------------------------------------------------------------
@@ -183,12 +197,13 @@ class Advisory(Base):
 class AdvisoryAction(Base):
     __tablename__ = "advisory_actions"
 
-    action_id          = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    advisory_id        = Column(UUID(as_uuid=False), ForeignKey("advisories.advisory_id"), nullable=False)
+    action_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    advisory_id = Column(UUID(as_uuid=False), ForeignKey(
+        "advisories.advisory_id"), nullable=False)
     action_description = Column(Text, nullable=False)
-    priority_level     = Column(String(20))   # High | Medium | Low
-    status             = Column(String(20), default="pending")
-    created_at         = Column(DateTime, default=datetime.utcnow)
+    priority_level = Column(String(20))   # High | Medium | Low
+    status = Column(String(20), default="pending")
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     advisory = relationship("Advisory", back_populates="actions")
 
@@ -199,14 +214,15 @@ class AdvisoryAction(Base):
 class ImageSpectrum(Base):
     __tablename__ = "image_spectra"
 
-    image_id     = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    hive_id      = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    audio_id     = Column(UUID(as_uuid=False), ForeignKey("audio_sources.audio_id"), nullable=False)
-    image_type   = Column(String(50), default="mel_spectrogram")
-    image_uri    = Column(String(255))
+    image_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
+    audio_id = Column(UUID(as_uuid=False), ForeignKey(
+        "audio_sources.audio_id"), nullable=False)
+    image_type = Column(String(50), default="mel_spectrogram")
+    image_uri = Column(String(255))
     generated_at = Column(DateTime, default=datetime.utcnow)
 
-    hive         = relationship("Hive", back_populates="image_spectra")
+    hive = relationship("Hive", back_populates="image_spectra")
     audio_source = relationship("AudioSource", back_populates="image_spectra")
 
 
@@ -227,15 +243,19 @@ class ImageSpectrum(Base):
 class FarmerDataSource(Base):
     __tablename__ = "farmer_data_sources"
 
-    source_id        = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    user_id          = Column(Integer, ForeignKey("users.user_id"), nullable=False)
-    hive_id          = Column(Integer, ForeignKey("hives.hive_id"), nullable=False, unique=True)
-    source_type      = Column(String(50), default="folder")      # folder | postgresql | http | s3
-    source_path      = Column(Text)                              # folder path or connection string
-    connection_config = Column(JSON)                             # future: DB creds, API keys, etc.
-    last_scanned_at  = Column(DateTime)
-    is_active        = Column(Boolean, default=True)
-    created_at       = Column(DateTime, default=datetime.utcnow)
+    source_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    hive_id = Column(Integer, ForeignKey("hives.hive_id"),
+                     nullable=False, unique=True)
+    # folder | postgresql | http | s3
+    source_type = Column(String(50), default="folder")
+    # folder path or connection string
+    source_path = Column(Text)
+    # future: DB creds, API keys, etc.
+    connection_config = Column(JSON)
+    last_scanned_at = Column(DateTime)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     hive = relationship("Hive", backref="data_source", uselist=False)
     user = relationship("User", backref="data_sources")

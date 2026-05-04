@@ -10,13 +10,14 @@ from api.schemas import (
     DataSourceConfigureResponse,
     DataSourceResponse,
     HiveCreate,
+    HiveCreateResponse,
     HiveResponse,
 )
 
 router = APIRouter(prefix="/hives", tags=["Hives"])
 
 
-@router.post("", response_model=HiveResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=HiveCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_hive(
     body: HiveCreate,
     db: Session = Depends(get_db),
@@ -25,11 +26,13 @@ def create_hive(
     """
     Register a new hive for the logged-in farmer.
 
-    Automatically creates a dedicated folder for this hive:
+    Automatically creates a local watched folder:
         data_sources/{user_id}/{hive_id}/
 
-    The farmer (or their sensor device) drops .wav files into that
-    folder and the poller picks them up every 30 seconds.
+    Also returns suggested_remote_folder — the path the farmer should
+    create on their external server and point their audio sensor to.
+    Convention: farmer_{user_id}/hive_{hive_id}/
+    (relative to whatever base recordings path their server uses)
     """
     hive = Hive(
         user_id           = current_user.user_id,
@@ -41,11 +44,11 @@ def create_hive(
     db.commit()
     db.refresh(hive)
 
-    # Create the watched folder for this hive
+    # Create the local watched folder for this hive
     folder_path = ROOT / "data_sources" / str(current_user.user_id) / str(hive.hive_id)
     folder_path.mkdir(parents=True, exist_ok=True)
 
-    # Register the data source in the database
+    # Register the data source in the database (starts as folder; farmer can upgrade to SSH)
     data_source = FarmerDataSource(
         user_id     = current_user.user_id,
         hive_id     = hive.hive_id,
@@ -56,7 +59,15 @@ def create_hive(
     db.add(data_source)
     db.commit()
 
-    return hive
+    return HiveCreateResponse(
+        hive_id                  = hive.hive_id,
+        user_id                  = hive.user_id,
+        hive_location            = hive.hive_location,
+        hive_type                = hive.hive_type,
+        installation_date        = hive.installation_date,
+        current_state            = hive.current_state,
+        suggested_remote_folder  = f"farmer_{current_user.user_id}/hive_{hive.hive_id}",
+    )
 
 
 @router.get("", response_model=list[HiveResponse])
