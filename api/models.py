@@ -3,37 +3,42 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Float, ForeignKey,
-    Integer, Numeric, String, Text, JSON
+    Numeric, String, Text, JSON, BigInteger, Date
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
 from api.database import Base
 
 
-# ---------------------------------------------------------------------------
-# Helper: default UUID for primary keys
-# ---------------------------------------------------------------------------
 def new_uuid():
     return str(uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
-# User  (farmer account)
-# 'users' avoids the reserved word 'user' in PostgreSQL
+# User  (farmers, admins, extension officers — unified with Laravel users)
 # ---------------------------------------------------------------------------
 class User(Base):
     __tablename__ = "users"
 
-    user_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    fullname = Column(String(100), nullable=False)
-    telephone_number = Column(String(15))
-    email = Column(String(100), unique=True, nullable=False, index=True)
-    password_hash = Column(String(255), nullable=False)
-    role = Column(String(30), default="farmer")   # farmer | admin
-    created_at = Column(DateTime, default=datetime.utcnow)
+    user_id                   = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    full_name                 = Column(String(100), nullable=False)
+    email                     = Column(String(100), unique=True, nullable=False, index=True)
+    email_verified_at         = Column(DateTime, nullable=True)
+    phone                     = Column(String(20), unique=True, nullable=True)
+    address                   = Column(Text, nullable=True)
+    password_hash             = Column(String(255), nullable=False)
+    role                      = Column(String(30), nullable=False, default="farmer")
+    two_factor_secret         = Column(Text, nullable=True)
+    two_factor_recovery_codes = Column(Text, nullable=True)
+    remember_token            = Column(String(100), nullable=True)
+    device_token              = Column(String(500), nullable=True)
+    device_token_updated_at   = Column(DateTime, nullable=True)
+    created_at                = Column(DateTime, default=datetime.utcnow)
+    updated_at                = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    hives = relationship("Hive", back_populates="owner")
+    hives        = relationship("Hive", back_populates="owner")
+    data_sources = relationship("FarmerDataSource", back_populates="user")
 
 
 # ---------------------------------------------------------------------------
@@ -42,220 +47,200 @@ class User(Base):
 class Hive(Base):
     __tablename__ = "hives"
 
-    hive_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
-    hive_location = Column(String(150))
-    hive_type = Column(String(50))
-    installation_date = Column(DateTime)
-    current_state = Column(String(30), default="unknown")
+    hive_id           = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    owner_id          = Column(UUID(as_uuid=False), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
+    hive_name         = Column(String(100), nullable=True)
+    hive_location     = Column(String(150), nullable=False)
+    hive_type         = Column(String(50), nullable=True)
+    installation_date = Column(Date, nullable=True)
+    current_state     = Column(String(50), nullable=False, default="unknown")
+    latitude          = Column(Numeric(9, 6), nullable=True)
+    longitude         = Column(Numeric(9, 6), nullable=True)
+    created_at        = Column(DateTime, default=datetime.utcnow)
+    updated_at        = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    owner = relationship("User", back_populates="hives")
-    audio_sources = relationship("AudioSource", back_populates="hive")
+    owner            = relationship("User", back_populates="hives")
+    audio_sources    = relationship("AudioSource", back_populates="hive")
     inference_results = relationship("InferenceResult", back_populates="hive")
-    alerts = relationship("Alert", back_populates="hive")
-    advisories = relationship("Advisory", back_populates="hive")
-    env_records = relationship("EnvironmentalData", back_populates="hive")
-    image_spectra = relationship("ImageSpectrum", back_populates="hive")
+    alerts           = relationship("Alert", back_populates="hive")
+    advisories       = relationship("Advisory", back_populates="hive")
+    env_records      = relationship("EnvironmentalData", back_populates="hive")
 
 
 # ---------------------------------------------------------------------------
-# AudioSource  (every uploaded audio file)
-# source_url = path/URL where the file is stored on the server
-# status: pending → processing → processed | failed
+# AudioSource
+# status lifecycle:  pending → processing → processed | failed
 # ---------------------------------------------------------------------------
 class AudioSource(Base):
     __tablename__ = "audio_sources"
 
-    audio_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    source_url = Column(String(255), nullable=False)
-    file_format = Column(String(20), default="wav")
-    duration_second = Column(Numeric(6, 2))
-    captured_at = Column(DateTime, default=datetime.utcnow)
-    ingestion_time_stamp = Column(DateTime, default=datetime.utcnow)
-    status = Column(String(20), default="pending")
+    audio_id            = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    hive_id             = Column(UUID(as_uuid=False), ForeignKey("hives.hive_id", ondelete="CASCADE"), nullable=False)
+    source_url          = Column(String(255), nullable=False)
+    file_format         = Column(String(20), nullable=False, default="wav")
+    duration_seconds    = Column(Numeric(6, 2), nullable=True)
+    captured_at         = Column(DateTime, nullable=True)
+    ingestion_timestamp = Column(DateTime, default=datetime.utcnow)
+    status              = Column(String(20), nullable=False, default="pending")
 
     hive = relationship("Hive", back_populates="audio_sources")
-    feature_vectors = relationship(
-        "FeatureVector", back_populates="audio_source")
-    image_spectra = relationship(
-        "ImageSpectrum", back_populates="audio_source")
 
 
 # ---------------------------------------------------------------------------
-# EnvironmentalData  (optional — temperature / humidity per hive)
+# EnvironmentalData
 # ---------------------------------------------------------------------------
 class EnvironmentalData(Base):
     __tablename__ = "environmental_data"
 
-    env_record_id = Column(UUID(as_uuid=False),
-                           primary_key=True, default=new_uuid)
-    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    humidity = Column(Numeric(5, 2))
-    temperature = Column(Numeric(5, 2))
-    recorded_at = Column(DateTime, default=datetime.utcnow)
+    env_record_id          = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    hive_id                = Column(UUID(as_uuid=False), ForeignKey("hives.hive_id", ondelete="CASCADE"), nullable=False)
+    temperature            = Column(Numeric(5, 2), nullable=True)
+    humidity               = Column(Numeric(5, 2), nullable=True)
+    population_k_bees      = Column(Numeric(6, 2), nullable=True)
+    nectar_flow_kg_per_day = Column(Numeric(6, 2), nullable=True)
+    recorded_at            = Column(DateTime, default=datetime.utcnow)
 
     hive = relationship("Hive", back_populates="env_records")
 
 
 # ---------------------------------------------------------------------------
-# FeatureVector  (171 extracted features — stored for traceability)
-# mfcc_value stores all 80 MFCC features as JSON text
-# The individual float columns store the summary features
+# AdvisoryTemplate  (static lookup — one row per hive_state classification)
+# Managed via the beehive-app admin panel.
 # ---------------------------------------------------------------------------
-class FeatureVector(Base):
-    __tablename__ = "feature_vectors"
+class AdvisoryTemplate(Base):
+    __tablename__ = "advisory_templates"
 
-    feature_id = Column(UUID(as_uuid=False),
-                        primary_key=True, default=new_uuid)
-    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    audio_id = Column(UUID(as_uuid=False), ForeignKey(
-        "audio_sources.audio_id"), nullable=False)
-    mfcc_value = Column(Text)       # JSON array of all MFCC coefficients
-    spectral_centroid = Column(Float)
-    spectral_bandwidth = Column(Float)
-    signal_energy = Column(Float)
-    zero_crossing_rate = Column(Float)
-    temperature_normalised = Column(Float)
-    humidity_normalised = Column(Float)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    template_id     = Column(BigInteger, primary_key=True, autoincrement=True)
+    prediction_code = Column(Numeric, nullable=False, unique=True)
+    hive_state      = Column(String(50), nullable=False, unique=True)
+    condition_label = Column(String(100), nullable=False)
+    advisory_text   = Column(Text, nullable=False)
+    advisory_type   = Column(String(30), nullable=False, default="Reactive")
+    severity        = Column(String(20), nullable=False, default="info")
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    audio_source = relationship(
-        "AudioSource", back_populates="feature_vectors")
-    inference_result = relationship(
-        "InferenceResult", back_populates="feature_vector", uselist=False)
+    advisories = relationship("Advisory", back_populates="template")
 
 
 # ---------------------------------------------------------------------------
-# InferenceResult  (what the model classified the audio as)
-# hive_state: active_colony | swarming | missing_queen |
-#             queenbee_present | external_noise
+# InferenceResult  (ML model output — one per processed audio file)
+# hive_state unified vocabulary: normal | pre_swarm | swarm | abscondment |
+#   missing_queen | queenbee_present | pest_infested | external_noise | uncertain
 # ---------------------------------------------------------------------------
 class InferenceResult(Base):
     __tablename__ = "inference_results"
 
-    inference_id = Column(UUID(as_uuid=False),
-                          primary_key=True, default=new_uuid)
-    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    feature_id = Column(UUID(as_uuid=False), ForeignKey(
-        "feature_vectors.feature_id"), nullable=True)
-    hive_state = Column(String(30), nullable=False)
-    confidence_score = Column(Numeric(5, 4), nullable=False)
-    inference_latency_ms = Column(Integer)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    inference_id         = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    hive_id              = Column(UUID(as_uuid=False), ForeignKey("hives.hive_id", ondelete="CASCADE"), nullable=False)
+    audio_id             = Column(UUID(as_uuid=False), ForeignKey("audio_sources.audio_id", ondelete="SET NULL"), nullable=True)
+    hive_state           = Column(String(50), nullable=False)
+    confidence_score     = Column(Numeric(5, 4), nullable=False)
+    inference_latency_ms = Column(Numeric, nullable=True)
+    analyzed_at          = Column(DateTime, default=datetime.utcnow)
+    created_at           = Column(DateTime, default=datetime.utcnow)
 
-    hive = relationship("Hive", back_populates="inference_results")
-    feature_vector = relationship(
-        "FeatureVector", back_populates="inference_result")
-    alert = relationship("Alert", back_populates="inference", uselist=False)
-    advisory = relationship(
-        "Advisory", back_populates="inference", uselist=False)
+    hive     = relationship("Hive", back_populates="inference_results")
+    alert    = relationship("Alert", back_populates="inference", uselist=False)
+    advisory = relationship("Advisory", back_populates="inference", uselist=False)
 
 
 # ---------------------------------------------------------------------------
-# Alert  (raised when state is swarming or missing_queen)
-# action_status: pending | acknowledged
-# ---------------------------------------------------------------------------
-class Alert(Base):
-    __tablename__ = "alerts"
-
-    alert_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    inference_id = Column(UUID(as_uuid=False), ForeignKey(
-        "inference_results.inference_id"), nullable=False)
-    severity_level = Column(String(20), nullable=False)   # High | Medium | Low
-    recommended_action = Column(Text)
-    action_status = Column(String(20), default="pending")
-    generated_at = Column(DateTime, default=datetime.utcnow)
-
-    hive = relationship("Hive", back_populates="alerts")
-    inference = relationship("InferenceResult", back_populates="alert")
-
-
-# ---------------------------------------------------------------------------
-# Advisory  (container for a set of recommended actions)
-# advisory_type: Reactive | Preventive
+# Advisory  (generated per-inference — linked to a template for traceability)
 # ---------------------------------------------------------------------------
 class Advisory(Base):
     __tablename__ = "advisories"
 
-    advisory_id = Column(UUID(as_uuid=False),
-                         primary_key=True, default=new_uuid)
-    inference_id = Column(UUID(as_uuid=False), ForeignKey(
-        "inference_results.inference_id"), nullable=False)
-    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    advisory_type = Column(String(30))
+    advisory_id     = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    inference_id    = Column(UUID(as_uuid=False), ForeignKey("inference_results.inference_id", ondelete="CASCADE"), nullable=False)
+    hive_id         = Column(UUID(as_uuid=False), ForeignKey("hives.hive_id", ondelete="CASCADE"), nullable=False)
+    template_id     = Column(BigInteger, ForeignKey("advisory_templates.template_id", ondelete="SET NULL"), nullable=True)
+    advisory_type   = Column(String(30), nullable=False, default="Reactive")
+    condition_label = Column(String(100), nullable=True)
+    advisory_text   = Column(Text, nullable=True)
+    severity        = Column(String(20), nullable=False, default="info")
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    hive = relationship("Hive", back_populates="advisories")
+    hive      = relationship("Hive", back_populates="advisories")
     inference = relationship("InferenceResult", back_populates="advisory")
-    actions = relationship("AdvisoryAction", back_populates="advisory")
+    template  = relationship("AdvisoryTemplate", back_populates="advisories")
+    actions   = relationship("AdvisoryAction", back_populates="advisory")
 
 
 # ---------------------------------------------------------------------------
-# AdvisoryAction  (individual checklist items inside an advisory)
+# AdvisoryAction  (individual checklist items inside a generated advisory)
 # ---------------------------------------------------------------------------
 class AdvisoryAction(Base):
     __tablename__ = "advisory_actions"
 
-    action_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    advisory_id = Column(UUID(as_uuid=False), ForeignKey(
-        "advisories.advisory_id"), nullable=False)
+    action_id          = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    advisory_id        = Column(UUID(as_uuid=False), ForeignKey("advisories.advisory_id", ondelete="CASCADE"), nullable=False)
     action_description = Column(Text, nullable=False)
-    priority_level = Column(String(20))   # High | Medium | Low
-    status = Column(String(20), default="pending")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    priority_level     = Column(String(20), nullable=False, default="medium")
+    status             = Column(String(20), nullable=False, default="pending")
+    created_at         = Column(DateTime, default=datetime.utcnow)
 
     advisory = relationship("Advisory", back_populates="actions")
 
 
 # ---------------------------------------------------------------------------
-# ImageSpectrum  (spectrogram image generated from audio)
+# Alert  (raised when inference warrants immediate farmer attention)
+# action_status lifecycle:  pending → sent → acknowledged
 # ---------------------------------------------------------------------------
-class ImageSpectrum(Base):
-    __tablename__ = "image_spectra"
+class Alert(Base):
+    __tablename__ = "alerts"
 
-    image_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    hive_id = Column(Integer, ForeignKey("hives.hive_id"), nullable=False)
-    audio_id = Column(UUID(as_uuid=False), ForeignKey(
-        "audio_sources.audio_id"), nullable=False)
-    image_type = Column(String(50), default="mel_spectrogram")
-    image_uri = Column(String(255))
-    generated_at = Column(DateTime, default=datetime.utcnow)
+    alert_id           = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    hive_id            = Column(UUID(as_uuid=False), ForeignKey("hives.hive_id", ondelete="CASCADE"), nullable=False)
+    inference_id       = Column(UUID(as_uuid=False), ForeignKey("inference_results.inference_id", ondelete="CASCADE"), nullable=False)
+    advisory_id        = Column(UUID(as_uuid=False), ForeignKey("advisories.advisory_id", ondelete="SET NULL"), nullable=True)
+    severity_level     = Column(String(20), nullable=False)
+    recommended_action = Column(Text, nullable=True)
+    action_status      = Column(String(20), nullable=False, default="pending")
+    alert_timestamp    = Column(DateTime, default=datetime.utcnow)
+    created_at         = Column(DateTime, default=datetime.utcnow)
+    updated_at         = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    hive = relationship("Hive", back_populates="image_spectra")
-    audio_source = relationship("AudioSource", back_populates="image_spectra")
+    hive      = relationship("Hive", back_populates="alerts")
+    inference = relationship("InferenceResult", back_populates="alert")
 
 
 # ---------------------------------------------------------------------------
-# FarmerDataSource
-# Records HOW each farmer's audio data reaches the system.
-#
-# source_type options:
-#   'folder'     — farmer drops .wav files into a watched folder on this server
-#   'postgresql' — farmer's own PostgreSQL database (future)
-#   'http'       — farmer's HTTP API endpoint (future)
-#   's3'         — cloud storage bucket (future)
-#
-# For the MVP we use 'folder'. The folder path is auto-created when a hive
-# is registered: data_sources/{user_id}/{hive_id}/
-# The background poller scans every active folder every 30 seconds.
+# FarmerDataSource  (how each farmer's audio reaches the system)
+# source_type:  folder | ssh | postgresql | http | s3
 # ---------------------------------------------------------------------------
 class FarmerDataSource(Base):
     __tablename__ = "farmer_data_sources"
 
-    source_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
-    hive_id = Column(Integer, ForeignKey("hives.hive_id"),
-                     nullable=False, unique=True)
-    # folder | postgresql | http | s3
-    source_type = Column(String(50), default="folder")
-    # folder path or connection string
-    source_path = Column(Text)
-    # future: DB creds, API keys, etc.
-    connection_config = Column(JSON)
-    last_scanned_at = Column(DateTime)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    source_id         = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    user_id           = Column(UUID(as_uuid=False), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
+    hive_id           = Column(UUID(as_uuid=False), ForeignKey("hives.hive_id", ondelete="CASCADE"), nullable=False, unique=True)
+    source_type       = Column(String(50), nullable=False, default="folder")
+    source_path       = Column(Text, nullable=True)
+    connection_config = Column(JSONB, nullable=True)
+    last_scanned_at   = Column(DateTime, nullable=True)
+    is_active         = Column(Boolean, nullable=False, default=True)
+    created_at        = Column(DateTime, default=datetime.utcnow)
 
     hive = relationship("Hive", backref="data_source", uselist=False)
-    user = relationship("User", backref="data_sources")
+    user = relationship("User", back_populates="data_sources")
+
+
+# ---------------------------------------------------------------------------
+# SystemLog  (audit trail for every significant event in the system)
+# level:      info | warning | error | critical
+# event_type: inference | poller | auth | upload | ssh | advisory | system
+# ---------------------------------------------------------------------------
+class SystemLog(Base):
+    __tablename__ = "system_logs"
+
+    log_id     = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    level      = Column(String(20),  nullable=False, default="info")
+    event_type = Column(String(50),  nullable=False)
+    message    = Column(Text,        nullable=False)
+    details    = Column(JSONB,       nullable=True)   # traceback, ids, extra context
+    hive_id    = Column(UUID(as_uuid=False), ForeignKey("hives.hive_id",          ondelete="SET NULL"), nullable=True)
+    user_id    = Column(UUID(as_uuid=False), ForeignKey("users.user_id",          ondelete="SET NULL"), nullable=True)
+    audio_id   = Column(UUID(as_uuid=False), ForeignKey("audio_sources.audio_id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

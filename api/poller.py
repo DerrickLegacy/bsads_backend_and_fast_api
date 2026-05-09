@@ -25,6 +25,7 @@ from api.config import ROOT
 from api.database import SessionLocal
 from api.models import AudioSource, FarmerDataSource
 from api.processing import process_audio_file
+from api.system_logger import exc_details, log_standalone
 
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac"}
 
@@ -48,7 +49,9 @@ def scan_all_sources() -> None:
             elif source.source_type == "ssh":
                 _scan_ssh(source, db)
     except Exception as exc:
-        print(f"[POLLER] scan error: {exc}")
+        log_standalone("error", "poller",
+                       f"scan_all_sources failed: {exc}",
+                       details=exc_details(exc))
     finally:
         db.close()
 
@@ -77,7 +80,10 @@ def _register_pending(source_url: str, file_format: str, source: FarmerDataSourc
     )
     db.add(record)
     db.commit()
-    print(f"[POLLER/{source.source_type}] hive={source.hive_id} registered pending → {source_url}")
+    log_standalone("info", "poller",
+                   f"New {source.source_type} file registered as pending",
+                   hive_id=str(source.hive_id),
+                   details={"source_url": source_url, "source_type": source.source_type})
 
 
 def _scan_folder(source: FarmerDataSource, db: Session) -> None:
@@ -105,7 +111,9 @@ def _scan_ssh(source: FarmerDataSource, db: Session) -> None:
     """
     config = source.connection_config
     if not config:
-        print(f"[POLLER/ssh] hive={source.hive_id}: no connection_config — skipping")
+        log_standalone("warning", "ssh",
+                       "SSH source has no connection_config — skipping",
+                       hive_id=str(source.hive_id))
         return
 
     import paramiko
@@ -131,7 +139,10 @@ def _scan_ssh(source: FarmerDataSource, db: Session) -> None:
             sftp.close()
             client.close()
     except Exception as exc:
-        print(f"[POLLER/ssh] hive={source.hive_id}: SSH error — {exc}")
+        log_standalone("error", "ssh",
+                       f"SSH scan failed: {exc}",
+                       hive_id=str(source.hive_id),
+                       details=exc_details(exc))
 
     source.last_scanned_at = datetime.utcnow()
     db.commit()
@@ -162,9 +173,14 @@ def process_pending_sources() -> None:
                 process_audio_file(record.audio_id, audio_bytes, record.hive_id)
                 db = SessionLocal()   # reopen for the next iteration
             except Exception as exc:
-                print(f"[POLLER] failed to process audio {record.audio_id}: {exc}")
+                log_standalone("error", "poller",
+                               f"Failed to process audio {record.audio_id}: {exc}",
+                               hive_id=str(record.hive_id), audio_id=str(record.audio_id),
+                               details=exc_details(exc))
     except Exception as exc:
-        print(f"[POLLER] process_pending error: {exc}")
+        log_standalone("error", "poller",
+                       f"process_pending_sources failed: {exc}",
+                       details=exc_details(exc))
     finally:
         db.close()
 

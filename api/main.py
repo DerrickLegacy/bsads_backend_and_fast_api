@@ -17,9 +17,16 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 
 from api.config import ROOT, settings
-from api.database import Base, engine
+from api.database import Base, SessionLocal, engine
 from api.poller import process_pending_sources, scan_all_sources
-from api.routers import alerts, audio, auth, hives, inferences
+from api.seed import seed_initial_data
+from api.routers import audio, auth, hives, inferences
+from api.routers.admin_views import router as admin_views_router
+from api.routers.advisory_templates import router as advisory_templates_router
+from api.routers.alerts import hive_alerts_router, mobile_alerts_router
+from api.routers.dashboard import router as dashboard_router
+from api.routers.logs import router as logs_router
+from api.routers.users import router as users_router
 
 # ---------------------------------------------------------------------------
 # Background scheduler — scans farmer data source folders every 30 seconds
@@ -52,6 +59,12 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     (ROOT / settings.upload_dir).mkdir(parents=True, exist_ok=True)
     (ROOT / "data_sources").mkdir(parents=True, exist_ok=True)
+
+    db = SessionLocal()
+    try:
+        seed_initial_data(db)
+    finally:
+        db.close()
 
     _scheduler.start()
 
@@ -94,7 +107,18 @@ app.include_router(auth.router)
 app.include_router(hives.router)
 app.include_router(audio.router)
 app.include_router(inferences.router)
-app.include_router(alerts.router)
+app.include_router(hive_alerts_router)
+app.include_router(mobile_alerts_router)
+app.include_router(dashboard_router)
+app.include_router(users_router)
+app.include_router(advisory_templates_router)
+app.include_router(admin_views_router)
+app.include_router(logs_router)
+
+
+@app.get("/health", tags=["Health"])
+def health_check():
+    return {"status": "ok", "service": "BSADS API"}
 
 
 @app.get("/", tags=["Health"])

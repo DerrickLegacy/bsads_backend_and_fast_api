@@ -28,7 +28,7 @@ UPLOAD_ROOT = ROOT / settings.upload_dir
 async def upload_audio(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="WAV audio recording from the hive"),
-    hive_id: int = Form(..., description="ID of the hive this recording belongs to"),
+    hive_id: str = Form(..., description="UUID of the hive this recording belongs to"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -43,7 +43,7 @@ async def upload_audio(
     """
     hive = db.query(Hive).filter(
         Hive.hive_id == hive_id,
-        Hive.user_id == current_user.user_id,
+        Hive.owner_id == current_user.user_id,
     ).first()
     if not hive:
         raise HTTPException(status_code=404, detail="Hive not found or does not belong to you")

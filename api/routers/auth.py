@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from jose import jwt
 from passlib.context import CryptContext
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from api.config import settings
@@ -26,9 +28,9 @@ def _verify(plain: str, hashed: str) -> bool:
     return _pwd.verify(plain, hashed)
 
 
-def create_token(user_id: int) -> str:
+def create_token(user_id: str) -> str:
     expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
-    return jwt.encode({"sub": str(user_id), "exp": expire}, settings.secret_key, algorithm=settings.algorithm)
+    return jwt.encode({"sub": user_id, "exp": expire}, settings.secret_key, algorithm=settings.algorithm)
 
 
 def get_current_user(
@@ -40,7 +42,7 @@ def get_current_user(
     """FastAPI dependency — validates JWT and returns the logged-in user."""
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        user_id = int(payload["sub"])
+        user_id = str(payload["sub"])
     except Exception:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
 
@@ -60,11 +62,12 @@ def register(body: UserRegister, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Email already registered")
 
     user = User(
-        fullname         = body.fullname,
-        email            = body.email,
-        password_hash    = _hash(body.password),
-        telephone_number = body.telephone_number,
-        role             = body.role,
+        full_name     = body.full_name,
+        email         = body.email,
+        password_hash = _hash(body.password),
+        phone         = body.phone,
+        address       = body.address,
+        role          = body.role,
     )
     db.add(user)
     db.commit()
@@ -87,3 +90,43 @@ def login(body: UserLogin, db: Session = Depends(get_db)):
 def me(current_user: User = Depends(get_current_user)):
     """Return the currently logged-in user's profile."""
     return current_user
+
+
+class ProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.put("/me", response_model=UserResponse)
+def update_me(
+    body: ProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update the logged-in user's own profile fields."""
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(current_user, field, value)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.put("/password")
+def change_password(
+    body: PasswordChange,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Change the logged-in user's own password."""
+    if not _verify(body.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    current_user.password_hash = _hash(body.new_password)
+    db.commit()
+    return {"detail": "Password updated successfully"}
