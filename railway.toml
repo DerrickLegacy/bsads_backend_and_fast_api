@@ -1,0 +1,15 @@
+# Railway deployment configuration
+# Docs: https://docs.railway.app/reference/config-as-code
+
+[build]
+# Railway will find your Dockerfile automatically since it's in the root.
+# Uncomment if you ever move the file:
+# dockerfilePath = "Dockerfile"
+
+[deploy]
+# Railway injects $PORT — the CMD in Dockerfile already handles it.
+# Health check: Railway pings this path to decide if the deploy succeeded.
+healthcheckPath    = "/health"
+healthcheckTimeout = 30          # seconds to wait for /health to return 200
+restartPolicyType  = "on_failure"
+restartPolicyMaxRetries = 3

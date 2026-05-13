@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Secrets — NEVER bake into the image
+.env
+.env.*
+!.env.example
+
+# Runtime data — mounted as volumes in docker-compose; Railway uses ephemeral storage
+uploads/
+data_sources/
+
+# Development tools
+.git/
+.gitignore
+*.md
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Test artefacts
+.pytest_cache/
+htmlcov/
+.coverage

@@ -1,0 +1,60 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LOCAL DEVELOPMENT STACK
+# Starts PostgreSQL + FastAPI together so you can test without Railway.
+#
+# Usage:
+#   docker compose up --build          # first run (builds image + starts DB)
+#   docker compose up                  # subsequent runs
+#   docker compose down -v             # stop and wipe the database volume
+#
+# API:          http://localhost:8000
+# Swagger docs: http://localhost:8000/docs
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       bee_db
+      POSTGRES_USER:     bee_user
+      POSTGRES_PASSWORD: bee_user
+    ports:
+      - "5432:5432"          # expose so you can connect with DBeaver / psql locally
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bee_user -d bee_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── FastAPI ─────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Override DATABASE_URL so the app connects to the local db container
+      DATABASE_URL: postgresql://bee_user:bee_user@db:5432/bee_db
+      PORT: 8000
+    env_file:
+      - .env                 # loads SECRET_KEY, HF_TOKEN, HF_SPACE_NAME, etc.
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Persist uploaded audio files and scanned data sources between restarts
+      - ./uploads:/app/uploads
+      - ./data_sources:/app/data_sources
+
+volumes:
+  pgdata:
+    driver: local
