@@ -34,6 +34,9 @@ class User(Base):
     remember_token            = Column(String(100), nullable=True)
     device_token              = Column(String(500), nullable=True)
     device_token_updated_at   = Column(DateTime, nullable=True)
+    # Farmer's external data source server credentials (HTTP API)
+    server_url                = Column(String(255), nullable=True)  # e.g., https://abc123.ngrok-free.dev
+    api_key                   = Column(String(255), nullable=True)  # e.g., f47ac10b-58cc-4372-a567-0e02b2c3d479
     created_at                = Column(DateTime, default=datetime.utcnow)
     updated_at                = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -56,6 +59,8 @@ class Hive(Base):
     current_state     = Column(String(50), nullable=False, default="unknown")
     latitude          = Column(Numeric(9, 6), nullable=True)
     longitude         = Column(Numeric(9, 6), nullable=True)
+    is_deleted        = Column(Boolean, nullable=False, default=False)
+    deleted_at        = Column(DateTime, nullable=True)
     created_at        = Column(DateTime, default=datetime.utcnow)
     updated_at        = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -208,7 +213,7 @@ class Alert(Base):
 
 # ---------------------------------------------------------------------------
 # FarmerDataSource  (how each farmer's audio reaches the system)
-# source_type:  folder | ssh | postgresql | http | s3
+# source_type:  http_api (HTTP REST API with API key authentication)
 # ---------------------------------------------------------------------------
 class FarmerDataSource(Base):
     __tablename__ = "farmer_data_sources"
@@ -230,7 +235,7 @@ class FarmerDataSource(Base):
 # ---------------------------------------------------------------------------
 # SystemLog  (audit trail for every significant event in the system)
 # level:      info | warning | error | critical
-# event_type: inference | poller | auth | upload | ssh | advisory | system
+# event_type: inference | poller | auth | upload | http_api | advisory | system
 # ---------------------------------------------------------------------------
 class SystemLog(Base):
     __tablename__ = "system_logs"

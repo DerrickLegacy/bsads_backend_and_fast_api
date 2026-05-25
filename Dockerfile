@@ -32,8 +32,8 @@ COPY --from=deps /usr/local/bin /usr/local/bin
 # Copy application source (no venv, no .env, no uploads — handled by .dockerignore)
 COPY api/ ./api/
 
-# Create runtime directories the app expects
-RUN mkdir -p uploads data_sources
+# Create the uploads directory the app writes to
+RUN mkdir -p uploads
 
 # Run as non-root for security
 RUN useradd --no-create-home --shell /bin/false appuser \

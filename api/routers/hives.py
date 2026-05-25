@@ -1,7 +1,8 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
-from api.config import ROOT, settings
+from api.config import settings
 from api.database import get_db
 from api.models import Alert, Advisory, EnvironmentalData, FarmerDataSource, Hive, User
 from api.routers.auth import get_current_user
@@ -9,7 +10,7 @@ from sqlalchemy import or_
 
 from api.schemas import (
     AlertResponse,
-    DataSourceConfigureSSH,
+    DataSourceConfigureHTTPAPI,
     DataSourceConfigureResponse,
     DataSourceResponse,
     HiveCreate,
@@ -32,13 +33,12 @@ def create_hive(
     """
     Register a new hive for the logged-in farmer.
 
-    Automatically creates a local watched folder:
-        data_sources/{owner_id}/{hive_id}/
+    If the user has server_url and api_key configured, automatically creates
+    an HTTP API data source for the hive. Otherwise, creates an inactive
+    placeholder that can be configured later.
 
-    Also returns suggested_remote_folder — the path the farmer should
-    create on their external server and point their audio sensor to.
-    Convention: farmer_{owner_id}/hive_{hive_id}/
-    (relative to whatever base recordings path their server uses)
+    Returns suggested_remote_folder — the path where the farmer should store
+    recordings on their external server, organized by API key.
     """
     owner_id = body.owner_id if (body.owner_id and current_user.role == "admin") else current_user.user_id
 
@@ -55,20 +55,44 @@ def create_hive(
     db.commit()
     db.refresh(hive)
 
-    # Create the local watched folder for this hive
-    folder_path = ROOT / "data_sources" / str(current_user.user_id) / str(hive.hive_id)
-    folder_path.mkdir(parents=True, exist_ok=True)
+    # Auto-configure HTTP API data source if user has credentials
+    if current_user.server_url and current_user.api_key:
+        api_config = {
+            "api_base_url": current_user.server_url.rstrip("/"),
+            "api_key": current_user.api_key,
+        }
+        
+        # Test connection
+        from api.http_connector import test_connection
+        connection_test = test_connection(api_config)
+        
+        data_source = FarmerDataSource(
+            user_id           = current_user.user_id,
+            hive_id           = hive.hive_id,
+            source_type       = "http_api",
+            source_path       = current_user.server_url,
+            connection_config = api_config,
+            is_active         = connection_test.get("ok", False),  # Only activate if connection succeeds
+        )
+        db.add(data_source)
+        db.commit()
 
-    # Register the data source (starts as folder; farmer can upgrade to SSH)
-    data_source = FarmerDataSource(
-        user_id     = current_user.user_id,
-        hive_id     = hive.hive_id,
-        source_type = "folder",
-        source_path = str(folder_path),
-        is_active   = True,
-    )
-    db.add(data_source)
-    db.commit()
+    else:
+        # Create inactive placeholder — farmer must configure credentials later
+        data_source = FarmerDataSource(
+            user_id     = current_user.user_id,
+            hive_id     = hive.hive_id,
+            source_type = "http_api",
+            is_active   = False,
+        )
+        db.add(data_source)
+        db.commit()
+
+    # Generate suggested folder path based on user's API key and hive ID
+    # The farmer's server organizes recordings by: <api_key>/<hive_id>/
+    suggested_folder = "/home/farmer/recordings"
+    if current_user.api_key:
+        suggested_folder = f"/home/farmer/recordings/{current_user.api_key}/{hive.hive_id}"
 
     return HiveCreateResponse(
         hive_id                 = hive.hive_id,
@@ -80,7 +104,7 @@ def create_hive(
         current_state           = hive.current_state,
         latitude                = hive.latitude,
         longitude               = hive.longitude,
-        suggested_remote_folder = f"farmer_{owner_id}/hive_{hive.hive_id}",
+        suggested_remote_folder = suggested_folder,
     )
 
 
@@ -114,8 +138,11 @@ def delete_hive(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Delete a hive. Admin can delete any hive; farmers can only delete their own."""
-    q = db.query(Hive).filter(Hive.hive_id == hive_id)
+    """
+    Soft delete a hive (marks as deleted instead of removing from database).
+    Admin can delete any hive; farmers can only delete their own.
+    """
+    q = db.query(Hive).filter(Hive.hive_id == hive_id, Hive.is_deleted == False)
     if current_user.role != "admin":
         q = q.filter(Hive.owner_id == current_user.user_id)
 
@@ -123,7 +150,17 @@ def delete_hive(
     if not hive:
         raise HTTPException(status_code=404, detail="Hive not found")
 
-    db.delete(hive)
+    # Soft delete: mark as deleted instead of removing
+    hive.is_deleted = True
+    hive.deleted_at = datetime.utcnow()
+    
+    # Also deactivate the data source to stop polling
+    data_source = db.query(FarmerDataSource).filter(
+        FarmerDataSource.hive_id == hive_id
+    ).first()
+    if data_source:
+        data_source.is_active = False
+    
     db.commit()
 
 
@@ -134,11 +171,11 @@ def list_hives(
     current_user: User = Depends(get_current_user),
 ):
     """
-    List hives.
-    - Admin: all hives in the system (optionally filtered by ?search=).
-    - Farmer: only their own hives.
+    List hives (excludes deleted hives).
+    - Admin: all active hives in the system (optionally filtered by ?search=).
+    - Farmer: only their own active hives.
     """
-    q = db.query(Hive)
+    q = db.query(Hive).filter(Hive.is_deleted == False)
 
     if current_user.role != "admin":
         q = q.filter(Hive.owner_id == current_user.user_id)
@@ -168,6 +205,7 @@ def get_hive(
     hive = db.query(Hive).filter(
         Hive.hive_id == hive_id,
         Hive.owner_id == current_user.user_id,
+        Hive.is_deleted == False,
     ).first()
     if not hive:
         raise HTTPException(status_code=404, detail="Hive not found")
@@ -281,31 +319,25 @@ def get_data_source(
 
 
 @router.post("/{hive_id}/data-source/configure", response_model=DataSourceConfigureResponse)
-def configure_ssh_source(
+def configure_data_source(
     hive_id: str,
-    body: DataSourceConfigureSSH,
+    body: DataSourceConfigureHTTPAPI,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Register or update the SSH data source for a hive.
+    Register or update the HTTP API data source for a hive.
 
-    The farmer provides credentials to their external server. We immediately
-    test the connection and return the result — if the test fails the config
-    is still saved so the farmer can fix it and retry without re-entering
-    everything.
+    The farmer provides their external server URL and API key. We immediately
+    test the connection and return the result.
 
     Once configured, the background poller will connect every 30 seconds,
-    list new audio files in remote_folder, download them, and run inference.
+    list new audio files via the API, download them, and run inference.
 
-    Either ssh_password or ssh_private_key must be provided.
+    Example:
+        api_base_url: "https://abc123.ngrok-free.dev"
+        api_key: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
     """
-    if not body.ssh_password and not body.ssh_private_key:
-        raise HTTPException(
-            status_code=400,
-            detail="Provide either ssh_password or ssh_private_key",
-        )
-
     hive = db.query(Hive).filter(
         Hive.hive_id == hive_id,
         Hive.owner_id == current_user.user_id,
@@ -313,36 +345,30 @@ def configure_ssh_source(
     if not hive:
         raise HTTPException(status_code=404, detail="Hive not found")
 
-    ssh_config = {
-        "ssh_host":      body.ssh_host,
-        "ssh_port":      body.ssh_port,
-        "ssh_username":  body.ssh_username,
-        "remote_folder": body.remote_folder,
+    api_config = {
+        "api_base_url": body.api_base_url.rstrip("/"),
+        "api_key": body.api_key,
     }
-    if body.ssh_password:
-        ssh_config["ssh_password"] = body.ssh_password
-    if body.ssh_private_key:
-        ssh_config["ssh_private_key"] = body.ssh_private_key
 
-    from api.ssh_connector import test_connection
-    connection_test = test_connection(ssh_config)
+    from api.http_connector import test_connection
+    connection_test = test_connection(api_config)
 
     source = db.query(FarmerDataSource).filter(
         FarmerDataSource.hive_id == hive_id
     ).first()
 
     if source:
-        source.source_type       = "ssh"
-        source.source_path       = body.remote_folder
-        source.connection_config = ssh_config
+        source.source_type       = "http_api"
+        source.source_path       = body.api_base_url
+        source.connection_config = api_config
         source.is_active         = True
     else:
         source = FarmerDataSource(
             user_id           = current_user.user_id,
             hive_id           = hive_id,
-            source_type       = "ssh",
-            source_path       = body.remote_folder,
-            connection_config = ssh_config,
+            source_type       = "http_api",
+            source_path       = body.api_base_url,
+            connection_config = api_config,
             is_active         = True,
         )
         db.add(source)
@@ -353,7 +379,7 @@ def configure_ssh_source(
     return DataSourceConfigureResponse(
         source_id       = source.source_id,
         hive_id         = hive_id,
-        source_type     = "ssh",
-        remote_folder   = body.remote_folder,
+        source_type     = "http_api",
+        api_base_url    = body.api_base_url,
         connection_test = connection_test,
     )

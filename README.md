@@ -10,7 +10,7 @@ This is the production API for the BSADS project. It connects farmers' remote au
 
 Beehive audio sensors record sound continuously. This API:
 
-1. Polls the farmer's external server via SSH/SFTP every 30 seconds for new recordings
+1. Polls the farmer's external server via HTTP API every 30 seconds for new recordings
 2. Registers every new audio file in the database with `status=pending`
 3. Fetches the audio bytes and sends them to the HuggingFace Gradio Space for classification
 4. Receives the classification result (label + confidence score) from HuggingFace
@@ -28,7 +28,7 @@ Step 1 — Sensor records audio
    /home/farmer/recordings/hive1.wav, hive2.wav …
 
 Step 2 — FastAPI polls the external server (every 30 s)
-   Background job connects via SSH/SFTP (paramiko), lists the remote folder,
+   Background job connects via HTTP API, lists available recordings,
    finds files not yet seen.
 
 Step 3 — File path stored in DB as pending
@@ -37,7 +37,7 @@ Step 3 — File path stored in DB as pending
 
 Step 4 — FastAPI fetches bytes + sends to HuggingFace
    Second background job (offset 10 s) picks up pending rows,
-   downloads the audio bytes over SFTP, and POSTs them to the
+   downloads the audio bytes via HTTP API, and POSTs them to the
    HuggingFace Gradio Space (DerrickLegacy256/bee-audio-classifier).
 
 Step 5 — Inference result comes back from HuggingFace
@@ -79,14 +79,14 @@ Step 7 — Mobile app reads results
 │                                        hive2.wav  …                │
 └──────────────────────┬──────────────────────────────────────────────┘
                        │
-                       │  SSH/SFTP (paramiko) — every 30 s
+                       │  HTTP API (with API key) — every 30 s
                        │  Step 1→2: poll for new files
                        ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  BSADS FastAPI SERVICE (localhost:8000)                             │
 │                                                                     │
-│  ① Discovery job — list remote folder, register pending rows       │
-│  ② Inference job — fetch bytes, POST to HuggingFace Space         │
+│  ① Discovery job — list recordings via API, register pending rows  │
+│  ② Inference job — fetch bytes via API, POST to HuggingFace Space │
 │  ③ Store result — InferenceResult + Alert + Advisory in Postgres   │
 └──────┬──────────────────────────────────────────┬───────────────────┘
        │                                          │
@@ -125,19 +125,32 @@ the Space picks it up automatically.
 
 ---
 
-## Farmer Data Sources — Two Ways Audio Reaches the API
+## Farmer Data Sources — How Audio Reaches the API
 
-### Option A — SSH polling (primary, production use)
+### Option A — HTTP API polling (recommended, production use)
 
-The farmer provides SSH credentials to their remote server. The API connects every 30 seconds,
-lists new audio files, downloads them, and sends them for inference automatically.
+The farmer provides their server URL and API key during registration or via profile update. 
+The API connects every 30 seconds, lists new audio files via HTTP, downloads them, and sends 
+them for inference automatically.
 
-Configure via: `POST /hives/{hive_id}/data-source/configure`
+**Benefits:**
+- Simple setup (no SSH keys)
+- Works through firewalls
+- Easy to revoke access
+- Farmer maintains control
+- Auto-configured when user has credentials
+
+**Setup guide:** See [USER_REGISTRATION_GUIDE.md](USER_REGISTRATION_GUIDE.md) and [FARMER_API_KEY_SETUP.md](FARMER_API_KEY_SETUP.md)
+
+Configure via: 
+- User registration: `POST /auth/register` with `server_url` and `api_key`
+- Profile update: `PUT /auth/me` with `server_url` and `api_key`
+- Per-hive override: `POST /hives/{hive_id}/data-source/configure`
 
 ### Option B — Watched local folder (development / simple deployments)
 
 Drop `.wav` files into `data_sources/{user_id}/{hive_id}/` on the server running the API.
-The same poller picks them up every 30 seconds without SSH.
+The same poller picks them up every 30 seconds.
 
 Created automatically when you register a hive.
 
@@ -185,7 +198,7 @@ Interactive API docs: http://localhost:8000/docs
 | GET    | `/hives`                                    | Yes  | List my hives                   |
 | GET    | `/hives/{id}`                               | Yes  | Get one hive                    |
 | GET    | `/hives/{id}/data-source`                   | Yes  | Data source status              |
-| POST   | `/hives/{id}/data-source/configure`         | Yes  | Configure SSH data source       |
+| POST   | `/hives/{id}/data-source/configure`         | Yes  | Configure HTTP API data source  |
 | POST   | `/audio/upload`                             | Yes  | Upload audio file manually      |
 | GET    | `/hives/{id}/inferences`                    | Yes  | All inference results (last 20) |
 | GET    | `/hives/{id}/inferences/latest`             | Yes  | Most recent result              |
@@ -208,7 +221,7 @@ bsads_backend_and_fast_api/
 │   ├── advisory.py          ← Alert + advisory generation rules
 │   ├── processing.py        ← Shared inference pipeline (upload + poller both call this)
 │   ├── poller.py            ← Two-phase background poller (discovery + inference jobs)
-│   ├── ssh_connector.py     ← Paramiko SSH/SFTP connector
+│   ├── http_connector.py    ← HTTP API connector for farmer's external servers
 │   └── routers/
 │       ├── auth.py          ← /auth/register, /auth/login, /auth/me
 │       ├── hives.py         ← /hives and /hives/{id}/data-source/configure
@@ -231,8 +244,9 @@ bsads_backend_and_fast_api/
 
 ## Documentation
 
-| File                     | Contents                                                                      |
-| ------------------------ | ----------------------------------------------------------------------------- |
-| [SETUP.md](SETUP.md)     | Prerequisites, PostgreSQL setup, venv, .env config, first run                 |
-| [TESTING.md](TESTING.md) | Full 7-step inference pipeline test with SSH simulation and all curl commands |
-| [API.md](API.md)         | Deep technical docs: DB schema, advisory rules, endpoint reference            |
+| File                                                | Contents                                                                      |
+| --------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [SETUP.md](SETUP.md)                                | Prerequisites, PostgreSQL setup, venv, .env config, first run                 |
+| [TESTING.md](TESTING.md)                            | Full 7-step inference pipeline test with SSH simulation and all curl commands |
+| [API.md](API.md)                                    | Deep technical docs: DB schema, advisory rules, endpoint reference            |
+| [FARMER_API_KEY_SETUP.md](FARMER_API_KEY_SETUP.md) | How to connect to farmer's server using API keys (recommended method)         |

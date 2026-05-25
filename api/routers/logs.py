@@ -29,7 +29,7 @@ def _require_admin(current_user: User = Depends(get_current_user)) -> User:
 @router.get("", response_model=list[SystemLogResponse])
 def list_logs(
     level:      Optional[str] = Query(None, description="Filter by level: info | warning | error | critical"),
-    event_type: Optional[str] = Query(None, description="Filter by event_type: inference | poller | ssh | auth | upload | advisory | system"),
+    event_type: Optional[str] = Query(None, description="Filter by event_type: inference | poller | http_api | auth | upload | advisory | system"),
     hive_id:    Optional[str] = Query(None, description="Filter logs for a specific hive"),
     since:      Optional[datetime] = Query(None, description="Only logs created after this ISO datetime"),
     limit:      int = Query(100, ge=1, le=1000, description="Maximum rows to return"),
@@ -39,7 +39,7 @@ def list_logs(
 ):
     """
     Return system log entries, newest first.
-    Combine any filters: ?level=error&event_type=ssh&limit=50
+    Combine any filters: ?level=error&event_type=http_api&limit=50
     """
     q = db.query(SystemLog)
 

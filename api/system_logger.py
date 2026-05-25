@@ -11,7 +11,7 @@ Usage (any module that already has a db session):
 Usage from background tasks / poller (no session passed in):
     from api.system_logger import log_standalone
 
-    log_standalone("error", "poller", "SSH connection failed",
+    log_standalone("error", "poller", "HTTP API connection failed",
                    hive_id=source.hive_id,
                    details={"error": str(exc)})
 """

@@ -33,7 +33,7 @@ from api.routers.users import router as users_router
 # ---------------------------------------------------------------------------
 _scheduler = BackgroundScheduler()
 
-# Job 1 — discover new files on SSH / local folder, register as pending
+# Job 1 — discover new files via HTTP API, register as pending
 _scheduler.add_job(
     scan_all_sources,
     trigger="interval",
@@ -58,7 +58,6 @@ async def lifespan(app: FastAPI):
     # --- startup ---
     Base.metadata.create_all(bind=engine)
     (ROOT / settings.upload_dir).mkdir(parents=True, exist_ok=True)
-    (ROOT / "data_sources").mkdir(parents=True, exist_ok=True)
 
     db = SessionLocal()
     try:
@@ -70,7 +69,6 @@ async def lifespan(app: FastAPI):
 
     print("✓ Database tables ready")
     print("✓ Upload directory ready")
-    print("✓ data_sources/ folder ready (drop audio files here per hive)")
     print(f"✓ HuggingFace Space: {settings.hf_space_name}")
     print("✓ Discovery poller started — scanning every 30 seconds")
     print("✓ Inference poller started — will process pending records every 30 seconds")

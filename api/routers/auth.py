@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
@@ -15,6 +16,7 @@ from api.schemas import Token, UserLogin, UserRegister, UserResponse
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 _pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
 
 
 # ---------------------------------------------------------------------------
@@ -34,21 +36,28 @@ def create_token(user_id: str) -> str:
 
 
 def get_current_user(
-    token: str = Depends(
-        __import__("fastapi.security", fromlist=["OAuth2PasswordBearer"]).OAuth2PasswordBearer(tokenUrl="/auth/login")
-    ),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
 ) -> User:
     """FastAPI dependency — validates JWT and returns the logged-in user."""
+    token = credentials.credentials
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         user_id = str(payload["sub"])
     except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 
@@ -57,7 +66,7 @@ def get_current_user(
 # ---------------------------------------------------------------------------
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 def register(body: UserRegister, db: Session = Depends(get_db)):
-    """Register a new farmer account."""
+    """Register a new farmer account with optional server URL and API key."""
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -68,6 +77,8 @@ def register(body: UserRegister, db: Session = Depends(get_db)):
         phone         = body.phone,
         address       = body.address,
         role          = body.role,
+        server_url    = body.server_url,
+        api_key       = body.api_key,
     )
     db.add(user)
     db.commit()
@@ -96,6 +107,8 @@ class ProfileUpdate(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
+    server_url: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 class PasswordChange(BaseModel):

@@ -51,9 +51,8 @@ services:
       db:
         condition: service_healthy
     volumes:
-      # Persist uploaded audio files and scanned data sources between restarts
+      # Persist manually uploaded audio files between restarts
       - ./uploads:/app/uploads
-      - ./data_sources:/app/data_sources
 
 volumes:
   pgdata:

@@ -13,6 +13,8 @@ class UserRegister(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     role: str = "farmer"
+    server_url: Optional[str] = None  # Farmer's external server URL (e.g., https://abc123.ngrok-free.dev)
+    api_key: Optional[str] = None     # API key for accessing farmer's server
 
 
 class UserLogin(BaseModel):
@@ -25,6 +27,8 @@ class UserResponse(BaseModel):
     full_name: str
     email: str
     role: str
+    server_url: Optional[str] = None
+    api_key: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -152,20 +156,17 @@ class DataSourceResponse(BaseModel):
         from_attributes = True
 
 
-class DataSourceConfigureSSH(BaseModel):
-    ssh_host: str
-    ssh_port: int = 22
-    ssh_username: str
-    ssh_password: Optional[str] = None
-    ssh_private_key: Optional[str] = None
-    remote_folder: str
+class DataSourceConfigureHTTPAPI(BaseModel):
+    api_base_url: str
+    api_key: str
 
 
 class DataSourceConfigureResponse(BaseModel):
     source_id: str
     hive_id: str
     source_type: str
-    remote_folder: str
+    remote_folder: Optional[str] = None
+    api_base_url: Optional[str] = None
     connection_test: dict
 
     class Config:
@@ -195,6 +196,8 @@ class UserDetailResponse(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     role: str
+    server_url: Optional[str] = None
+    api_key: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -208,6 +211,8 @@ class AdminUserCreate(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     role: str = "farmer"
+    server_url: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 class AdminUserUpdate(BaseModel):
@@ -215,6 +220,8 @@ class AdminUserUpdate(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     role: Optional[str] = None
+    server_url: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
