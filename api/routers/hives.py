@@ -1,6 +1,7 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
+import logging
 
 from api.config import settings
 from api.database import get_db
@@ -22,6 +23,7 @@ from api.schemas import (
 )
 
 router = APIRouter(prefix="/hives", tags=["Hives"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("", response_model=HiveCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -38,7 +40,7 @@ def create_hive(
     placeholder that can be configured later.
 
     Returns suggested_remote_folder — the path where the farmer should store
-    recordings on their external server, organized by API key.
+    recordings on their external server, organized by API key and hive name.
     """
     owner_id = body.owner_id if (body.owner_id and current_user.role == "admin") else current_user.user_id
 
@@ -55,16 +57,28 @@ def create_hive(
     db.commit()
     db.refresh(hive)
 
+    # Determine folder name: use hive_name if provided, otherwise use hive_id
+    folder_name = hive.hive_name if hive.hive_name else str(hive.hive_id)
+
     # Auto-configure HTTP API data source if user has credentials
     if current_user.server_url and current_user.api_key:
         api_config = {
             "api_base_url": current_user.server_url.rstrip("/"),
             "api_key": current_user.api_key,
+            "hive_folder": folder_name,  # Store the folder name for polling
         }
         
         # Test connection
-        from api.http_connector import test_connection
+        from api.http_connector import test_connection, create_hive_folder
         connection_test = test_connection(api_config)
+        
+        # Create the hive folder on the farmer's server
+        if connection_test.get("ok"):
+            try:
+                create_hive_folder(api_config, folder_name)
+            except Exception as e:
+                # Log but don't fail - folder might already exist
+                logger.warning(f"Could not create folder on farmer's server for hive {hive.hive_id}: {e}")
         
         data_source = FarmerDataSource(
             user_id           = current_user.user_id,
@@ -88,11 +102,11 @@ def create_hive(
         db.add(data_source)
         db.commit()
 
-    # Generate suggested folder path based on user's API key and hive ID
-    # The farmer's server organizes recordings by: <api_key>/<hive_id>/
+    # Generate suggested folder path based on user's API key and hive name
+    # The farmer's server organizes recordings by: <api_key>/<hive_name>/
     suggested_folder = "/home/farmer/recordings"
     if current_user.api_key:
-        suggested_folder = f"/home/farmer/recordings/{current_user.api_key}/{hive.hive_id}"
+        suggested_folder = f"/home/farmer/recordings/{current_user.api_key}/{folder_name}"
 
     return HiveCreateResponse(
         hive_id                 = hive.hive_id,

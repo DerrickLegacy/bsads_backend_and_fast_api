@@ -175,3 +175,38 @@ def get_recording_url(config: dict, filepath: str) -> str:
     """
     base_url = config.get("api_base_url", "").rstrip("/")
     return f"{base_url}/recordings/{filepath}"
+
+
+def create_hive_folder(config: dict, hive_folder: str) -> dict:
+    """
+    Create a hive folder on the farmer's server for organizing recordings.
+    
+    This is called automatically when a hive is created in BSADS to ensure
+    the folder structure exists on the farmer's server.
+    
+    Args:
+        config: Connection config dict with keys:
+            - api_base_url: Base URL of the farmer's server
+            - api_key: API key for authentication
+        hive_folder: Name of the hive folder to create (e.g., "Hive 001")
+    
+    Returns:
+        Response dict with folder_path and created status
+    
+    Raises:
+        requests.exceptions.RequestException: On connection or HTTP errors
+    """
+    base_url = config.get("api_base_url", "").rstrip("/")
+    api_key = config.get("api_key", "")
+    
+    if not base_url or not api_key:
+        raise ValueError("api_base_url and api_key are required in config")
+    
+    session = _build_session(api_key)
+    response = session.post(
+        f"{base_url}/folders/{hive_folder}",
+        timeout=30
+    )
+    response.raise_for_status()
+    
+    return response.json()

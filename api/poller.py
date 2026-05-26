@@ -88,7 +88,8 @@ def _scan_http_api(source: FarmerDataSource, db: Session) -> None:
     List audio files from the farmer's HTTP API server for a specific hive
     and register any that have not been seen before.
     
-    Files are organized by hive: recordings/<api_key>/<hive_id>/<filename>
+    Files are organized by hive: recordings/<api_key>/<hive_folder>/<filename>
+    where hive_folder is the hive_name (or hive_id if no name provided)
     """
     config = source.connection_config
     if not config:
@@ -100,13 +101,16 @@ def _scan_http_api(source: FarmerDataSource, db: Session) -> None:
     from api.http_connector import list_recordings, get_recording_url
 
     known = _known_paths_for_hive(source.hive_id, db)
+    
+    # Get the hive folder name from config (hive_name or hive_id)
+    hive_folder = config.get("hive_folder", str(source.hive_id))
 
     try:
-        # List recordings for this specific hive
-        filepaths = list_recordings(config, hive_id=str(source.hive_id))
+        # List recordings for this specific hive folder
+        filepaths = list_recordings(config, hive_id=hive_folder)
         
         for filepath in filepaths:
-            # filepath format: "hive-id/filename.wav"
+            # filepath format: "hive_folder/filename.wav"
             if Path(filepath).suffix.lower() not in AUDIO_EXTENSIONS:
                 continue
             
