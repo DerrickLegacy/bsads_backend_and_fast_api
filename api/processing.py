@@ -24,6 +24,45 @@ from api.models import AudioSource, Hive, InferenceResult
 from api.system_logger import exc_details, log
 
 
+# Mapping from ML model labels to database hive_state vocabulary
+# Database expects: normal | pre_swarm | swarm | abscondment | missing_queen |
+#                   queenbee_present | pest_infested | external_noise | uncertain
+LABEL_TO_HIVE_STATE = {
+    "swarming": "swarm",
+    "swarm": "swarm",
+    "pre-swarming": "pre_swarm",
+    "pre_swarm": "pre_swarm",
+    "normal": "normal",
+    "healthy": "normal",
+    "abscondment": "abscondment",
+    "absconding": "abscondment",
+    "missing_queen": "missing_queen",
+    "queenless": "missing_queen",
+    "queenbee_present": "queenbee_present",
+    "queen_present": "queenbee_present",
+    "pest_infested": "pest_infested",
+    "pest": "pest_infested",
+    "external_noise": "external_noise",
+    "noise": "external_noise",
+    "uncertain": "uncertain",
+    "unknown": "uncertain",
+}
+
+
+def normalize_hive_state(model_label: str) -> str:
+    """
+    Normalize the ML model's label to match the database hive_state vocabulary.
+    
+    Args:
+        model_label: Raw label from the ML model (e.g., "swarming")
+    
+    Returns:
+        Normalized hive_state (e.g., "swarm")
+    """
+    normalized = model_label.lower().strip().replace(" ", "_").replace("-", "_")
+    return LABEL_TO_HIVE_STATE.get(normalized, "uncertain")
+
+
 def process_audio_file(audio_id: str, audio_bytes: bytes, hive_id: str) -> None:
     """
     Full pipeline for one audio file.
@@ -43,10 +82,13 @@ def process_audio_file(audio_id: str, audio_bytes: bytes, hive_id: str) -> None:
         # --- Send to HuggingFace Inference API ---
         result = predict_from_bytes(audio_bytes)
 
+        # Normalize the model's label to match database vocabulary
+        hive_state = normalize_hive_state(result.label)
+
         # --- Inference result ---
         inference = InferenceResult(
             hive_id              = hive_id,
-            hive_state           = result.label,
+            hive_state           = hive_state,
             confidence_score     = result.confidence,
             inference_latency_ms = result.latency_ms,
         )
@@ -60,9 +102,14 @@ def process_audio_file(audio_id: str, audio_bytes: bytes, hive_id: str) -> None:
         audio_record.status = "processed"
 
         log(db, "info", "inference",
-            f"Classified as {result.label} ({result.confidence:.2%}) in {result.latency_ms}ms",
+            f"Classified as {hive_state} ({result.confidence:.2%}) in {result.latency_ms}ms",
             hive_id=hive_id, audio_id=audio_id,
-            details={"hive_state": result.label, "confidence": result.confidence, "latency_ms": result.latency_ms})
+            details={
+                "model_label": result.label,
+                "hive_state": hive_state,
+                "confidence": result.confidence,
+                "latency_ms": result.latency_ms
+            })
 
         db.commit()
 

@@ -95,7 +95,7 @@ def test_connection(config: dict) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
-def list_recordings(config: dict, hive_id: str = None) -> list[str]:
+def list_recordings(config: dict, hive_id: str = None, hive_name: str = None) -> list[str]:
     """
     List available audio recordings from the farmer's server.
     
@@ -103,10 +103,11 @@ def list_recordings(config: dict, hive_id: str = None) -> list[str]:
         config: Connection config dict with keys:
             - api_base_url: Base URL of the farmer's server
             - api_key: API key for authentication
-        hive_id: Optional hive ID to filter recordings for a specific hive
+        hive_id: Optional hive ID to filter recordings (deprecated, use hive_name)
+        hive_name: Optional hive name to filter recordings for a specific hive
     
     Returns:
-        List of recording paths (e.g., ["hive-id/file1.wav", "hive-id/file2.wav"])
+        List of recording paths (e.g., ["Hive 22/file1.wav", "Hive 23/file2.wav"])
     
     Raises:
         requests.exceptions.RequestException: On connection or HTTP errors
@@ -118,8 +119,15 @@ def list_recordings(config: dict, hive_id: str = None) -> list[str]:
         raise ValueError("api_base_url and api_key are required in config")
     
     session = _build_session(api_key)
-    params = {"hive_id": hive_id} if hive_id else {}
-    response = session.get(f"{base_url}/recordings", params=params, timeout=30)
+    
+    # Use hive_name if provided, otherwise fall back to hive_id (for backwards compatibility)
+    params = {}
+    if hive_name:
+        params["hive_name"] = hive_name
+    elif hive_id:
+        params["hive_id"] = hive_id
+    
+    response = session.get(f"{base_url}/recordings", params=params, timeout=10)
     response.raise_for_status()
     
     data = response.json()
@@ -171,7 +179,7 @@ def get_recording_url(config: dict, filepath: str) -> str:
         filepath: Path to the file (e.g., "hive-id/filename.wav")
     
     Returns:
-        Full URL to the recording (e.g., "https://server.com/recordings/hive-id/file.wav")
+        Full URL to the recording (e.g., "https://server.com/recordings/api-token/hive-id/file.wav")
     """
     base_url = config.get("api_base_url", "").rstrip("/")
     return f"{base_url}/recordings/{filepath}"

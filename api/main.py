@@ -18,7 +18,11 @@ from fastapi.responses import HTMLResponse
 
 from api.config import ROOT, settings
 from api.database import Base, SessionLocal, engine
-from api.poller import process_pending_sources, scan_all_sources
+from api.poller_concurrent import (
+    process_pending_sources_concurrent as process_pending_sources,
+    scan_all_sources_concurrent as scan_all_sources,
+    recover_stuck_records,
+)
 from api.seed import seed_initial_data
 from api.routers import audio, auth, hives, inferences
 from api.routers.admin_views import router as admin_views_router
@@ -29,20 +33,22 @@ from api.routers.logs import router as logs_router
 from api.routers.users import router as users_router
 
 # ---------------------------------------------------------------------------
-# Background scheduler — scans farmer data source folders every 30 seconds
+# Background scheduler — scans farmer data source folders concurrently
 # ---------------------------------------------------------------------------
 _scheduler = BackgroundScheduler()
 
-# Job 1 — discover new files via HTTP API, register as pending
+# Job 1 — discover new files via HTTP API, register as pending (CONCURRENT)
 _scheduler.add_job(
     scan_all_sources,
     trigger="interval",
     seconds=settings.poll_interval_seconds,
     id="discovery_poller",
     replace_existing=True,
+    max_instances=1,  # Prevent overlapping executions
+    coalesce=True,    # If multiple runs are pending, combine them into one
 )
 
-# Job 2 — pick up pending records, fetch bytes, call HuggingFace Inference API
+# Job 2 — pick up pending records, fetch bytes, call HuggingFace Inference API (CONCURRENT + BATCHED)
 _scheduler.add_job(
     process_pending_sources,
     trigger="interval",
@@ -50,6 +56,18 @@ _scheduler.add_job(
     start_date=f"2000-01-01 00:00:{settings.poll_offset_seconds:02d}",
     id="inference_poller",
     replace_existing=True,
+    max_instances=1,  # Prevent overlapping executions
+    coalesce=True,    # If multiple runs are pending, combine them into one
+)
+
+# Job 3 — recover stuck 'processing' records (runs every 5 minutes)
+_scheduler.add_job(
+    recover_stuck_records,
+    trigger="interval",
+    minutes=settings.recovery_interval_minutes,
+    id="recovery_job",
+    replace_existing=True,
+    max_instances=1,
 )
 
 
@@ -70,8 +88,9 @@ async def lifespan(app: FastAPI):
     print("✓ Database tables ready")
     print("✓ Upload directory ready")
     print(f"✓ HuggingFace Space: {settings.hf_space_name}")
-    print("✓ Discovery poller started — scanning every 30 seconds")
-    print("✓ Inference poller started — will process pending records every 30 seconds")
+    print(f"✓ Discovery poller started (CONCURRENT) — scanning every {settings.poll_interval_seconds}s")
+    print(f"✓ Inference poller started (CONCURRENT + BATCHED) — processing every {settings.poll_interval_seconds}s")
+    print(f"✓ Recovery job started — checking for stuck records every {settings.recovery_interval_minutes} minutes")
 
     yield
 

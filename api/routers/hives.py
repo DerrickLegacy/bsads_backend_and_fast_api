@@ -78,6 +78,9 @@ def create_hive(
     db.refresh(hive)
 
     # Auto-configure HTTP API data source if user has credentials
+    folder_created = False
+    folder_creation_error = None
+    
     if current_user.server_url and current_user.api_key:
         api_config = {
             "api_base_url": current_user.server_url.rstrip("/"),
@@ -89,12 +92,29 @@ def create_hive(
 
         connection_test = test_connection(api_config)
 
+        # Try to create the hive folder on the farmer's server
         hive_folder = _safe_hive_folder_name(hive.hive_name, str(hive.hive_id))
-        _create_farmer_hive_folder(
-            current_user.server_url,
-            current_user.api_key,
-            hive_folder,
-        )
+        try:
+            _create_farmer_hive_folder(
+                current_user.server_url,
+                current_user.api_key,
+                hive_folder,
+            )
+            folder_created = True
+        except requests.exceptions.RequestException as e:
+            # Log the error but don't fail hive creation if folder creation fails
+            # The folder can be created manually or on first upload
+            folder_creation_error = str(e)
+            from api.models import SystemLog
+            db.add(SystemLog(
+                level="warning",
+                event_type="http_api",
+                message=f"Failed to create hive folder on farmer server: {hive_folder}",
+                details={"error": str(e), "hive_id": str(hive.hive_id)},
+                hive_id=hive.hive_id,
+                user_id=current_user.user_id,
+            ))
+            db.commit()
 
         data_source = FarmerDataSource(
             user_id=current_user.user_id,
@@ -141,6 +161,8 @@ def create_hive(
         latitude=hive.latitude,
         longitude=hive.longitude,
         suggested_remote_folder=suggested_folder,
+        folder_created=folder_created,
+        folder_creation_error=folder_creation_error,
     )
 
 
