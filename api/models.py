@@ -209,6 +209,7 @@ class Alert(Base):
 
     hive      = relationship("Hive", back_populates="alerts")
     inference = relationship("InferenceResult", back_populates="alert")
+    advisory  = relationship("Advisory", foreign_keys=[advisory_id], primaryjoin="Alert.advisory_id == Advisory.advisory_id", uselist=False)
 
 
 # ---------------------------------------------------------------------------

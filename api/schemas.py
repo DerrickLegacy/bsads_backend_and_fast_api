@@ -41,6 +41,10 @@ class Token(BaseModel):
     user: UserResponse
 
 
+class LogoutResponse(BaseModel):
+    detail: str = "Logged out successfully"
+
+
 # ---------------------------------------------------------------------------
 # Hive
 # ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from api.config import settings
 from api.database import get_db
 from api.models import User
-from api.schemas import Token, UserLogin, UserRegister, UserResponse
+from api.schemas import Token, UserLogin, UserRegister, UserResponse, LogoutResponse
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -143,3 +143,15 @@ def change_password(
     current_user.password_hash = _hash(body.new_password)
     db.commit()
     return {"detail": "Password updated successfully"}
+
+
+@router.post("/logout", response_model=LogoutResponse)
+def logout(current_user: User = Depends(get_current_user)):
+    """
+    Log out the current user.
+
+    This API uses stateless JWT tokens — no server-side session is stored.
+    The client must discard the token on their end after calling this endpoint.
+    Returns a success response to confirm the logout action was received.
+    """
+    return LogoutResponse(detail="Logged out successfully")
