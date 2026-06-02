@@ -70,10 +70,10 @@ def _known_paths_for_hive(hive_id: str, db: Session) -> set:
 def _register_pending(source_url: str, file_format: str, source: FarmerDataSource, db: Session) -> None:
     """Insert an AudioSource row with status='pending'."""
     record = AudioSource(
-        hive_id     = source.hive_id,
-        source_url  = source_url,
-        file_format = file_format,
-        status      = "pending",
+        hive_id=source.hive_id,
+        source_url=source_url,
+        file_format=file_format,
+        status="pending",
     )
     db.add(record)
     db.commit()
@@ -87,7 +87,7 @@ def _scan_http_api(source: FarmerDataSource, db: Session) -> None:
     """
     List audio files from the farmer's HTTP API server for a specific hive
     and register any that have not been seen before.
-    
+
     Files are organized by hive: recordings/<api_key>/<hive_id>/<filename>
     """
     config = source.connection_config
@@ -104,19 +104,19 @@ def _scan_http_api(source: FarmerDataSource, db: Session) -> None:
     try:
         # List recordings for this specific hive
         filepaths = list_recordings(config, hive_id=str(source.hive_id))
-        
+
         for filepath in filepaths:
             # filepath format: "hive-id/filename.wav"
             if Path(filepath).suffix.lower() not in AUDIO_EXTENSIONS:
                 continue
-            
+
             # Use full URL as the canonical identifier (matches source_url)
             recording_url = get_recording_url(config, filepath)
-            
+
             if recording_url not in known:
                 fmt = Path(filepath).suffix.lstrip(".").lower()
                 _register_pending(recording_url, fmt, source, db)
-    
+
     except Exception as exc:
         log_standalone("error", "http_api",
                        f"HTTP API scan failed: {exc}",
@@ -146,7 +146,8 @@ def process_pending_sources() -> None:
             try:
                 audio_bytes = _fetch_audio_bytes(record, db)
                 db.close()
-                process_audio_file(record.audio_id, audio_bytes, record.hive_id)
+                process_audio_file(
+                    record.audio_id, audio_bytes, record.hive_id)
                 db = SessionLocal()
             except Exception as exc:
                 log_standalone("error", "poller",
@@ -170,13 +171,16 @@ def _fetch_audio_bytes(record: AudioSource, db: Session) -> bytes:
         .first()
     )
     if not data_source or not data_source.connection_config:
-        raise ValueError(f"No connection config found for hive {record.hive_id}")
+        raise ValueError(
+            f"No connection config found for hive {record.hive_id}")
 
     if data_source.source_type == "http_api":
         from api.http_connector import download_file_bytes as http_download
         # Extract filepath from URL (e.g., "https://server.com/recordings/hive-id/file.wav" -> "hive-id/file.wav")
         # URL format: https://server.com/recordings/hive-id/filename.wav
-        filepath = "/".join(record.source_url.split("/recordings/")[1].split("/"))
+        filepath = "/".join(record.source_url.split("/recordings/")
+                            [1].split("/"))
         return http_download(data_source.connection_config, filepath)
     else:
-        raise ValueError(f"Unsupported source type: {data_source.source_type}. Only http_api is supported.")
+        raise ValueError(
+            f"Unsupported source type: {data_source.source_type}. Only http_api is supported.")
