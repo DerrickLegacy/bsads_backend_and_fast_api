@@ -20,9 +20,10 @@ FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
-# Runtime system libs only
+# Runtime system libs (add postgresql-client for psql command)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
+        postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from the deps stage
@@ -31,6 +32,11 @@ COPY --from=deps /usr/local/bin /usr/local/bin
 
 # Copy application source (no venv, no .env, no uploads — handled by .dockerignore)
 COPY api/ ./api/
+COPY migrations/ ./migrations/
+COPY start.sh ./start.sh
+
+# Make startup script executable
+RUN chmod +x start.sh
 
 # Create the uploads directory the app writes to
 RUN mkdir -p uploads
@@ -42,4 +48,4 @@ USER appuser
 
 # Railway injects $PORT; fall back to 8000 for local docker-compose runs.
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["./start.sh"]
