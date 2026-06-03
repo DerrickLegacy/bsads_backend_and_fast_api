@@ -6,12 +6,13 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.config import settings
 from api.database import get_db
 from api.models import User
-from api.schemas import Token, UserLogin, UserRegister, UserResponse
+from api.schemas import Token, UserLogin, UserRegister, UserResponse, LogoutResponse
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -81,10 +82,17 @@ def register(body: UserRegister, db: Session = Depends(get_db)):
         api_key       = body.api_key,
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Email or phone already registered")
     db.refresh(user)
 
-    return Token(access_token=create_token(user.user_id), user=UserResponse.model_validate(user))
+    return Token(
+        access_token=create_token(str(user.user_id)),
+        user=UserResponse.model_validate(user),
+    )
 
 
 @router.post("/login", response_model=Token)
@@ -94,7 +102,10 @@ def login(body: UserLogin, db: Session = Depends(get_db)):
     if not user or not _verify(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
-    return Token(access_token=create_token(user.user_id), user=UserResponse.model_validate(user))
+    return Token(
+        access_token=create_token(str(user.user_id)),
+        user=UserResponse.model_validate(user),
+    )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -143,3 +154,15 @@ def change_password(
     current_user.password_hash = _hash(body.new_password)
     db.commit()
     return {"detail": "Password updated successfully"}
+
+
+@router.post("/logout", response_model=LogoutResponse)
+def logout(current_user: User = Depends(get_current_user)):
+    """
+    Log out the current user.
+
+    This API uses stateless JWT tokens — no server-side session is stored.
+    The client must discard the token on their end after calling this endpoint.
+    Returns a success response to confirm the logout action was received.
+    """
+    return LogoutResponse(detail="Logged out successfully")
