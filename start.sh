@@ -3,13 +3,28 @@ set -e
 
 echo "Running database migrations..."
 
-# Run migrations if POSTGRES_URL is set
-if [ -n "$DATABASE_URL" ]; then
+# Railway uses lowercase database_url, handle both cases
+DB_URL="${database_url:-${DATABASE_URL:-$POSTGRES_URL}}"
+
+if [ -n "$DB_URL" ]; then
+    echo "Database URL found, applying migrations..."
+    
     echo "Applying user credentials migration..."
-    psql "$DATABASE_URL" -f migrations/add_user_server_credentials.sql || echo "Migration already applied or failed"
+    if psql "$DB_URL" -f migrations/add_user_server_credentials.sql 2>&1; then
+        echo "✓ User credentials migration applied successfully"
+    else
+        echo "⚠ User credentials migration skipped or failed (may already be applied)"
+    fi
     
     echo "Applying soft delete migration..."
-    psql "$DATABASE_URL" -f migrations/add_soft_delete_to_hives.sql || echo "Migration already applied or failed"
+    if psql "$DB_URL" -f migrations/add_soft_delete_to_hives.sql 2>&1; then
+        echo "✓ Soft delete migration applied successfully"
+    else
+        echo "⚠ Soft delete migration skipped or failed (may already be applied)"
+    fi
+else
+    echo "⚠ WARNING: No database URL found. Skipping migrations."
+    echo "Checked variables: database_url, DATABASE_URL, POSTGRES_URL"
 fi
 
 echo "Starting application..."
