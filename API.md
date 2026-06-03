@@ -29,13 +29,13 @@ The BSADS API sits between two worlds:
 
 The API receives an audio recording, sends it through the ML pipeline, and tells the farmer what state their hive is in. There are five possible states:
 
-| State | Meaning |
-|---|---|
-| `active_colony` | Hive is healthy and active — normal |
-| `queenbee_present` | Queen is detected — normal |
-| `swarming` | Bees are swarming — **urgent alert** |
-| `missing_queen` | Queen is absent — **alert** |
-| `external_noise` | Background noise detected — low confidence |
+| State              | Meaning                                    |
+| ------------------ | ------------------------------------------ |
+| `active_colony`    | Hive is healthy and active — normal        |
+| `queenbee_present` | Queen is detected — normal                 |
+| `swarming`         | Bees are swarming — **urgent alert**       |
+| `missing_queen`    | Queen is absent — **alert**                |
+| `external_noise`   | Background noise detected — low confidence |
 
 When a dangerous state is detected, the API automatically creates an **Alert** and an **Advisory** — a prioritised checklist of actions the farmer should take.
 
@@ -141,6 +141,7 @@ hives ────────────────────────�
 The API uses **JWT (JSON Web Tokens)**. Here is exactly what happens:
 
 ### Registration / Login
+
 ```
 Farmer registers → password is hashed with bcrypt (never stored plain)
                 → JWT token is generated containing { user_id, expiry }
@@ -148,6 +149,7 @@ Farmer registers → password is hashed with bcrypt (never stored plain)
 ```
 
 ### Every subsequent request
+
 ```
 Mobile app sends:   Authorization: Bearer <token>
 API decodes token:  → extracts user_id
@@ -159,6 +161,7 @@ Any endpoint with   Depends(get_current_user) automatically does this
 ### Why this matters for you as a developer
 
 When you test an endpoint that requires login, you must:
+
 1. Call `/auth/login` first → get the token
 2. Copy the token
 3. Add it as a header: `Authorization: Bearer <your_token>` on every protected request
@@ -172,32 +175,35 @@ The interactive docs at `/docs` handle this for you with the **Authorize** butto
 This is the heart of the system. Understanding this helps you debug problems.
 
 ### Step 1 — Audio loading
+
 ```python
 y, sr = librosa.load(file_path, sr=22050)
 y = y[:int(5.0 * sr)]   # first 5 seconds only
 ```
+
 Why 22050 Hz? That is the same sample rate used during training. If you load at a different rate, the features will be different and the model will give wrong results.
 
 Why 5 seconds? The training data used 5-second segments. The model learned from 5-second windows.
 
 ### Step 2 — Feature extraction (171 features)
 
-| Feature Group | Count | What it captures |
-|---|---|---|
-| MFCCs (mean + std) | 80 | Timbre — the "colour" of the sound |
-| Delta MFCCs (mean) | 40 | How MFCCs change over time |
-| Chroma (mean + std) | 24 | Pitch class content |
-| Mel spectrogram stats | 4 | Energy distribution across frequencies |
-| Spectral centroid | 2 | Brightness of sound |
-| Spectral bandwidth | 2 | Spread of frequencies |
-| Spectral rolloff | 2 | High-frequency content |
-| Spectral contrast | 7 | Peak vs valley in spectrum |
-| Zero crossing rate | 2 | Signal noisiness |
-| RMS energy | 2 | Loudness |
-| Tonnetz | 6 | Harmonic content |
-| **Total** | **171** | |
+| Feature Group         | Count   | What it captures                       |
+| --------------------- | ------- | -------------------------------------- |
+| MFCCs (mean + std)    | 80      | Timbre — the "colour" of the sound     |
+| Delta MFCCs (mean)    | 40      | How MFCCs change over time             |
+| Chroma (mean + std)   | 24      | Pitch class content                    |
+| Mel spectrogram stats | 4       | Energy distribution across frequencies |
+| Spectral centroid     | 2       | Brightness of sound                    |
+| Spectral bandwidth    | 2       | Spread of frequencies                  |
+| Spectral rolloff      | 2       | High-frequency content                 |
+| Spectral contrast     | 7       | Peak vs valley in spectrum             |
+| Zero crossing rate    | 2       | Signal noisiness                       |
+| RMS energy            | 2       | Loudness                               |
+| Tonnetz               | 6       | Harmonic content                       |
+| **Total**             | **171** |                                        |
 
 ### Step 3 — Model prediction
+
 ```python
 class_index = model.predict(vector)[0]       # which class (0-4)
 probabilities = model.predict_proba(vector)[0] # confidence per class
@@ -207,6 +213,7 @@ confidence = probabilities[class_index]       # confidence of the chosen class
 `predict_proba` gives you the probability for EACH class. The highest one wins. If the winning probability is low (e.g., 0.45), the model is uncertain — this is worth logging.
 
 ### Step 4 — Latency measurement
+
 ```python
 t0 = time.perf_counter()
 # ... model inference ...
@@ -214,6 +221,7 @@ latency_ms = int((time.perf_counter() - t0) * 1000)
 ```
 
 Latency is stored in `inference_results.inference_latency_ms`. Typical values:
+
 - Feature extraction: 1,000–3,000 ms (librosa is the slow part)
 - Model prediction: 5–50 ms (Gradient Boosting is fast)
 
@@ -252,60 +260,63 @@ The advisory recommendations are domain knowledge — they come from beekeeping 
 
 Base URL (local): `http://localhost:8000`
 Interactive docs: `http://localhost:8000/docs`
+BAse URL (railway):`https://bsads-api-production.up.railway.app/docs`
 
 ### Authentication
 
-| Method | Endpoint | Auth required | Description |
-|---|---|---|---|
-| POST | `/auth/register` | No | Create a farmer account |
-| POST | `/auth/login` | No | Login, receive JWT token |
-| GET | `/auth/me` | Yes | Get current user profile |
+| Method | Endpoint         | Auth required | Description              |
+| ------ | ---------------- | ------------- | ------------------------ |
+| POST   | `/auth/register` | No            | Create a farmer account  |
+| POST   | `/auth/login`    | No            | Login, receive JWT token |
+| GET    | `/auth/me`       | Yes           | Get current user profile |
 
 ### Hives
 
-| Method | Endpoint | Auth required | Description |
-|---|---|---|---|
-| POST | `/hives` | Yes | Register a new hive |
-| GET | `/hives` | Yes | List all my hives |
-| GET | `/hives/{hive_id}` | Yes | Get one hive |
+| Method | Endpoint           | Auth required | Description         |
+| ------ | ------------------ | ------------- | ------------------- |
+| POST   | `/hives`           | Yes           | Register a new hive |
+| GET    | `/hives`           | Yes           | List all my hives   |
+| GET    | `/hives/{hive_id}` | Yes           | Get one hive        |
 
 ### Audio Upload
 
-| Method | Endpoint | Auth required | Description |
-|---|---|---|---|
-| POST | `/audio/upload` | Yes | Upload audio, trigger inference |
+| Method | Endpoint        | Auth required | Description                     |
+| ------ | --------------- | ------------- | ------------------------------- |
+| POST   | `/audio/upload` | Yes           | Upload audio, trigger inference |
 
 ### Inference Results (mobile reads here)
 
-| Method | Endpoint | Auth required | Description |
-|---|---|---|---|
-| GET | `/hives/{hive_id}/inferences` | Yes | Last 20 results for a hive |
-| GET | `/hives/{hive_id}/inferences/latest` | Yes | Most recent result only |
+| Method | Endpoint                             | Auth required | Description                |
+| ------ | ------------------------------------ | ------------- | -------------------------- |
+| GET    | `/hives/{hive_id}/inferences`        | Yes           | Last 20 results for a hive |
+| GET    | `/hives/{hive_id}/inferences/latest` | Yes           | Most recent result only    |
 
 ### Alerts
 
-| Method | Endpoint | Auth required | Description |
-|---|---|---|---|
-| GET | `/hives/{hive_id}/alerts` | Yes | Pending alerts for a hive |
-| GET | `/hives/{hive_id}/alerts?only_pending=false` | Yes | All alerts including acknowledged |
-| PATCH | `/hives/{hive_id}/alerts/{alert_id}/acknowledge` | Yes | Mark alert as seen |
+| Method | Endpoint                                         | Auth required | Description                       |
+| ------ | ------------------------------------------------ | ------------- | --------------------------------- |
+| GET    | `/hives/{hive_id}/alerts`                        | Yes           | Pending alerts for a hive         |
+| GET    | `/hives/{hive_id}/alerts?only_pending=false`     | Yes           | All alerts including acknowledged |
+| PATCH  | `/hives/{hive_id}/alerts/{alert_id}/acknowledge` | Yes           | Mark alert as seen                |
 
 ### Health Check
 
-| Method | Endpoint | Auth required | Description |
-|---|---|---|---|
-| GET | `/` | No | API status check |
+| Method | Endpoint | Auth required | Description      |
+| ------ | -------- | ------------- | ---------------- |
+| GET    | `/`      | No            | API status check |
 
 ---
 
 ## 8. How to Set Up and Run Locally
 
 ### Prerequisites
+
 - Python 3.11+
 - PostgreSQL running with `bee_db`, user `bee_user`, password `bee_user`
 - The trained model files in `models/`
 
 ### 1. Clone and set up environment
+
 ```bash
 git clone git@github.com:DerrickLegacy/bee_swarming_and_absconment_audio_classifer.git
 cd bee_swarming_and_absconment_audio_classifer
@@ -316,6 +327,7 @@ pip install -r requirements.txt
 ```
 
 ### 2. Configure the database
+
 ```bash
 # In psql as the postgres superuser:
 psql -U postgres
@@ -326,6 +338,7 @@ GRANT ALL PRIVILEGES ON DATABASE bee_db TO bee_user;
 ```
 
 ### 3. Check your .env file
+
 ```
 DATABASE_URL=postgresql://bee_user:bee_user@localhost:5432/bee_db
 SECRET_KEY=bee-swarming-system-secret-key-change-in-production
@@ -334,11 +347,13 @@ HF_TOKEN=<your_huggingface_token>
 ```
 
 ### 4. Start the server
+
 ```bash
 uvicorn api.main:app --reload --port 8000
 ```
 
 On first start you will see:
+
 ```
 ✓ Database tables ready
 ✓ Upload directory ready
@@ -356,6 +371,7 @@ Open `http://localhost:8000/docs` in your browser for an interactive version.
 Or use these `curl` commands in your terminal.
 
 ### Step 1 — Register a farmer account
+
 ```bash
 curl -X POST http://localhost:8000/auth/register \
   -H "Content-Type: application/json" \
@@ -369,6 +385,7 @@ curl -X POST http://localhost:8000/auth/register \
 ```
 
 **Response:**
+
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIs...",
@@ -388,6 +405,7 @@ Save the `access_token` — you need it for all other requests.
 ---
 
 ### Step 2 — Login (if you already have an account)
+
 ```bash
 curl -X POST http://localhost:8000/auth/login \
   -H "Content-Type: application/json" \
@@ -397,6 +415,7 @@ curl -X POST http://localhost:8000/auth/login \
 ---
 
 ### Step 3 — Register a hive
+
 ```bash
 curl -X POST http://localhost:8000/hives \
   -H "Authorization: Bearer <your_token>" \
@@ -409,6 +428,7 @@ curl -X POST http://localhost:8000/hives \
 ```
 
 **Response:**
+
 ```json
 {
   "hive_id": 1,
@@ -423,6 +443,7 @@ curl -X POST http://localhost:8000/hives \
 ---
 
 ### Step 4 — Upload a hive audio recording
+
 ```bash
 curl -X POST http://localhost:8000/audio/upload \
   -H "Authorization: Bearer <your_token>" \
@@ -431,6 +452,7 @@ curl -X POST http://localhost:8000/audio/upload \
 ```
 
 **Response (immediate — 202 Accepted):**
+
 ```json
 {
   "audio_id": "3f4a1b2c-...",
@@ -444,12 +466,14 @@ The model is now running in the background. Wait 3–5 seconds then check result
 ---
 
 ### Step 5 — Get the inference result
+
 ```bash
 curl http://localhost:8000/hives/1/inferences/latest \
   -H "Authorization: Bearer <your_token>"
 ```
 
 **Response (normal hive):**
+
 ```json
 {
   "inference_id": "a1b2c3d4-...",
@@ -464,12 +488,13 @@ curl http://localhost:8000/hives/1/inferences/latest \
 ```
 
 **Response (swarming detected):**
+
 ```json
 {
   "inference_id": "a1b2c3d4-...",
   "hive_id": 1,
   "hive_state": "swarming",
-  "confidence_score": 0.9830,
+  "confidence_score": 0.983,
   "inference_latency_ms": 2105,
   "created_at": "2026-04-29T10:05:23",
   "alert": {
@@ -484,11 +509,31 @@ curl http://localhost:8000/hives/1/inferences/latest \
     "advisory_id": "p1q2r3-...",
     "advisory_type": "Reactive",
     "actions": [
-      { "action_description": "Inspect the hive immediately to confirm swarming activity", "priority_level": "High", "status": "pending" },
-      { "action_description": "Prepare a swarm trap or empty hive box nearby to capture the swarm", "priority_level": "High", "status": "pending" },
-      { "action_description": "Remove or destroy swarm cells to prevent secondary swarms", "priority_level": "Medium", "status": "pending" },
-      { "action_description": "Ensure the hive has enough space to reduce overcrowding", "priority_level": "Medium", "status": "pending" },
-      { "action_description": "Contact a local beekeeper association for immediate assistance", "priority_level": "Low", "status": "pending" }
+      {
+        "action_description": "Inspect the hive immediately to confirm swarming activity",
+        "priority_level": "High",
+        "status": "pending"
+      },
+      {
+        "action_description": "Prepare a swarm trap or empty hive box nearby to capture the swarm",
+        "priority_level": "High",
+        "status": "pending"
+      },
+      {
+        "action_description": "Remove or destroy swarm cells to prevent secondary swarms",
+        "priority_level": "Medium",
+        "status": "pending"
+      },
+      {
+        "action_description": "Ensure the hive has enough space to reduce overcrowding",
+        "priority_level": "Medium",
+        "status": "pending"
+      },
+      {
+        "action_description": "Contact a local beekeeper association for immediate assistance",
+        "priority_level": "Low",
+        "status": "pending"
+      }
     ]
   }
 }
@@ -497,6 +542,7 @@ curl http://localhost:8000/hives/1/inferences/latest \
 ---
 
 ### Step 6 — View and acknowledge an alert
+
 ```bash
 # View pending alerts
 curl http://localhost:8000/hives/1/alerts \
@@ -514,10 +560,12 @@ curl -X PATCH http://localhost:8000/hives/1/alerts/<alert_id>/acknowledge \
 Share this information with your mobile development team.
 
 ### Base URL
+
 - **Local testing:** `http://localhost:8000`
 - **After deployment to Railway/Render:** the URL they give you (e.g., `https://bsads-api.railway.app`)
 
 ### Authentication flow for mobile
+
 ```
 1. Farmer opens app → calls POST /auth/login
 2. App stores the token securely (e.g., in device keychain)
@@ -526,6 +574,7 @@ Share this information with your mobile development team.
 ```
 
 ### Recommended mobile polling pattern
+
 ```
 After farmer uploads audio:
   → Call GET /hives/{id}/inferences/latest every 3 seconds
@@ -534,6 +583,7 @@ After farmer uploads audio:
 ```
 
 ### CORS
+
 The API allows requests from any origin (`*`). In production this should be tightened to only allow the mobile app's domain.
 
 ---
