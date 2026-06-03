@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from api.database import get_db
 from api.models import Alert, Advisory, Hive, User
@@ -74,19 +74,51 @@ def acknowledge_hive_alert(
 mobile_alerts_router = APIRouter(prefix="/alerts", tags=["Mobile Alerts"])
 
 
+def _safe_advisory(alert: Alert) -> Advisory | None:
+    """Load linked advisory without joinedload (avoids broken join paths on some DBs)."""
+    try:
+        return alert.advisory
+    except Exception:
+        return None
+
+
 def _to_mobile(alert: Alert, index: int = 0) -> MobileAlertResponse:
+    advisory = _safe_advisory(alert)
     title = (
-        alert.advisory.condition_label
-        if alert.advisory and alert.advisory.condition_label
+        advisory.condition_label
+        if advisory and advisory.condition_label
         else (alert.recommended_action or "Alert")
     )
     return MobileAlertResponse(
-        id=alert.alert_id,
-        hive_id=alert.hive_id,
-        severity=alert.severity_level,
+        id=str(alert.alert_id),
+        hive_id=str(alert.hive_id),
+        severity=alert.severity_level or "info",
         title=title,
         date=alert.alert_timestamp.isoformat() if alert.alert_timestamp else "",
         summary=alert.recommended_action or "",
+    )
+
+
+def _to_mobile_detail(alert: Alert) -> MobileAlertDetailResponse:
+    advisory = _safe_advisory(alert)
+    title = (
+        advisory.condition_label
+        if advisory and advisory.condition_label
+        else (alert.recommended_action or "Alert")
+    )
+    details = (
+        advisory.advisory_text
+        if advisory and advisory.advisory_text
+        else (alert.recommended_action or "")
+    )
+    return MobileAlertDetailResponse(
+        id=str(alert.alert_id),
+        hive_id=str(alert.hive_id),
+        severity=alert.severity_level or "info",
+        title=title,
+        time=alert.alert_timestamp.isoformat() if alert.alert_timestamp else "",
+        details=details,
+        acknowledged=alert.action_status == "acknowledged",
     )
 
 
@@ -101,18 +133,22 @@ def get_all_alerts(
     - Admin: all alerts system-wide (optionally filtered by ?hive_id=).
     - Farmer/mobile: only their own hives' alerts.
     """
-    q = db.query(Alert).options(joinedload(Alert.advisory))
+    if current_user.role != "admin":
+        hive_ids = [
+            str(row.hive_id)
+            for row in db.query(Hive.hive_id)
+            .filter(Hive.owner_id == str(current_user.user_id))
+            .all()
+        ]
+        if not hive_ids:
+            return []
+
+    q = db.query(Alert)
 
     if current_user.role == "admin":
         if hive_id:
             q = q.filter(Alert.hive_id == hive_id)
     else:
-        hive_ids = [
-            row.hive_id
-            for row in db.query(Hive.hive_id).filter(Hive.owner_id == current_user.user_id).all()
-        ]
-        if not hive_ids:
-            return []
         q = q.filter(Alert.hive_id.in_(hive_ids))
         if hive_id:
             q = q.filter(Alert.hive_id == hive_id)
@@ -131,7 +167,7 @@ def notify_alert(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    alert = db.query(Alert).options(joinedload(Alert.advisory)).filter(Alert.alert_id == alert_id).first()
+    alert = db.query(Alert).filter(Alert.alert_id == alert_id).first()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
@@ -139,20 +175,7 @@ def notify_alert(
     db.commit()
     db.refresh(alert)
 
-    title = (alert.advisory.condition_label if alert.advisory and alert.advisory.condition_label
-             else (alert.recommended_action or "Alert"))
-    details = (alert.advisory.advisory_text if alert.advisory and alert.advisory.advisory_text
-               else (alert.recommended_action or ""))
-
-    return MobileAlertDetailResponse(
-        id=alert.alert_id,
-        hive_id=alert.hive_id,
-        severity=alert.severity_level,
-        title=title,
-        time=alert.alert_timestamp.isoformat() if alert.alert_timestamp else "",
-        details=details,
-        acknowledged=alert.action_status == "acknowledged",
-    )
+    return _to_mobile_detail(alert)
 
 
 @mobile_alerts_router.get("/{alert_id}", response_model=MobileAlertDetailResponse)
@@ -163,39 +186,24 @@ def get_alert_detail(
 ):
     """Return the detail of a single alert (mobile alert detail screen)."""
     hive_ids = [
-        row.hive_id
-        for row in db.query(Hive.hive_id).filter(Hive.owner_id == current_user.user_id).all()
+        str(row.hive_id)
+        for row in db.query(Hive.hive_id)
+        .filter(Hive.owner_id == str(current_user.user_id))
+        .all()
     ]
+
+    if not hive_ids:
+        raise HTTPException(status_code=404, detail="Alert not found")
 
     alert = (
         db.query(Alert)
-        .options(joinedload(Alert.advisory))
         .filter(Alert.alert_id == alert_id, Alert.hive_id.in_(hive_ids))
         .first()
     )
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
-    title = (
-        alert.advisory.condition_label
-        if alert.advisory and alert.advisory.condition_label
-        else (alert.recommended_action or "Alert")
-    )
-    details = (
-        alert.advisory.advisory_text
-        if alert.advisory and alert.advisory.advisory_text
-        else (alert.recommended_action or "No details available.")
-    )
-
-    return MobileAlertDetailResponse(
-        id=alert.alert_id,
-        hive_id=alert.hive_id,
-        severity=alert.severity_level,
-        title=title,
-        time=alert.alert_timestamp.isoformat() if alert.alert_timestamp else "",
-        details=details,
-        acknowledged=alert.action_status == "acknowledged",
-    )
+    return _to_mobile_detail(alert)
 
 
 @mobile_alerts_router.get("/{alert_id}/advisory", response_model=AdvisoryResponse)
@@ -215,20 +223,18 @@ def get_alert_advisory(
     """
     # Scope to the current user's hives (admin can see all)
     if current_user.role == "admin":
-        alert = (
-            db.query(Alert)
-            .options(joinedload(Alert.advisory).joinedload(Advisory.actions))
-            .filter(Alert.alert_id == alert_id)
-            .first()
-        )
+        alert = db.query(Alert).filter(Alert.alert_id == alert_id).first()
     else:
         hive_ids = [
-            row.hive_id
-            for row in db.query(Hive.hive_id).filter(Hive.owner_id == current_user.user_id).all()
+            str(row.hive_id)
+            for row in db.query(Hive.hive_id)
+            .filter(Hive.owner_id == str(current_user.user_id))
+            .all()
         ]
+        if not hive_ids:
+            raise HTTPException(status_code=404, detail="Alert not found")
         alert = (
             db.query(Alert)
-            .options(joinedload(Alert.advisory).joinedload(Advisory.actions))
             .filter(Alert.alert_id == alert_id, Alert.hive_id.in_(hive_ids))
             .first()
         )
@@ -236,10 +242,11 @@ def get_alert_advisory(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
-    if not alert.advisory:
+    advisory = _safe_advisory(alert)
+    if not advisory:
         raise HTTPException(status_code=404, detail="No advisory linked to this alert")
 
-    return alert.advisory
+    return AdvisoryResponse.model_validate(advisory)
 
 
 @mobile_alerts_router.post("/{alert_id}/acknowledge", response_model=MobileAlertDetailResponse)
@@ -250,13 +257,17 @@ def acknowledge_alert(
 ):
     """Acknowledge an alert from the mobile app."""
     hive_ids = [
-        row.hive_id
-        for row in db.query(Hive.hive_id).filter(Hive.owner_id == current_user.user_id).all()
+        str(row.hive_id)
+        for row in db.query(Hive.hive_id)
+        .filter(Hive.owner_id == str(current_user.user_id))
+        .all()
     ]
+
+    if not hive_ids:
+        raise HTTPException(status_code=404, detail="Alert not found")
 
     alert = (
         db.query(Alert)
-        .options(joinedload(Alert.advisory))
         .filter(Alert.alert_id == alert_id, Alert.hive_id.in_(hive_ids))
         .first()
     )
@@ -267,23 +278,4 @@ def acknowledge_alert(
     db.commit()
     db.refresh(alert)
 
-    title = (
-        alert.advisory.condition_label
-        if alert.advisory and alert.advisory.condition_label
-        else (alert.recommended_action or "Alert")
-    )
-    details = (
-        alert.advisory.advisory_text
-        if alert.advisory and alert.advisory.advisory_text
-        else (alert.recommended_action or "")
-    )
-
-    return MobileAlertDetailResponse(
-        id=alert.alert_id,
-        hive_id=alert.hive_id,
-        severity=alert.severity_level,
-        title=title,
-        time=alert.alert_timestamp.isoformat() if alert.alert_timestamp else "",
-        details=details,
-        acknowledged=True,
-    )
+    return _to_mobile_detail(alert)

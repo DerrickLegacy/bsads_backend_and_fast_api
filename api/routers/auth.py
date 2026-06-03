@@ -6,6 +6,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.config import settings
@@ -81,10 +82,17 @@ def register(body: UserRegister, db: Session = Depends(get_db)):
         api_key       = body.api_key,
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Email or phone already registered")
     db.refresh(user)
 
-    return Token(access_token=create_token(user.user_id), user=UserResponse.model_validate(user))
+    return Token(
+        access_token=create_token(str(user.user_id)),
+        user=UserResponse.model_validate(user),
+    )
 
 
 @router.post("/login", response_model=Token)
@@ -94,7 +102,10 @@ def login(body: UserLogin, db: Session = Depends(get_db)):
     if not user or not _verify(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
-    return Token(access_token=create_token(user.user_id), user=UserResponse.model_validate(user))
+    return Token(
+        access_token=create_token(str(user.user_id)),
+        user=UserResponse.model_validate(user),
+    )
 
 
 @router.get("/me", response_model=UserResponse)
