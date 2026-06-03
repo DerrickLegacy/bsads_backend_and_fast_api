@@ -49,6 +49,8 @@ def create_user(
         phone=body.phone,
         address=body.address,
         role=body.role,
+        server_url=body.server_url,
+        api_key=body.api_key,
     )
     db.add(user)
     db.commit()
