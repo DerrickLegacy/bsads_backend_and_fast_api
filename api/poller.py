@@ -39,14 +39,6 @@ def scan_all_sources() -> None:
             .filter(FarmerDataSource.is_active == True)
             .all()
         )
-        log_standalone("info", "poller",
-                       f"🔍 Discovery poller: scanning {len(sources)} active data sources")
-        
-        if not sources:
-            log_standalone("info", "poller",
-                           "No active data sources to scan")
-            return
-        
         for source in sources:
             if source.source_type == "http_api":
                 try:
@@ -61,9 +53,6 @@ def scan_all_sources() -> None:
                 log_standalone("warning", "poller",
                                f"Unsupported source type: {source.source_type}. Only http_api is supported.",
                                hive_id=str(source.hive_id))
-        
-        log_standalone("info", "poller",
-                       f"✓ Discovery poller: completed scan of {len(sources)} data sources")
     except Exception as exc:
         log_standalone("error", "poller",
                        f"scan_all_sources failed: {exc}",
@@ -88,10 +77,10 @@ def _known_paths_for_hive(hive_id: str, db: Session) -> set:
 def _register_pending(source_url: str, file_format: str, source: FarmerDataSource, db: Session) -> None:
     """Insert an AudioSource row with status='pending'."""
     record = AudioSource(
-        hive_id     = source.hive_id,
-        source_url  = source_url,
-        file_format = file_format,
-        status      = "pending",
+        hive_id=source.hive_id,
+        source_url=source_url,
+        file_format=file_format,
+        status="pending",
     )
     db.add(record)
     db.commit()
@@ -105,8 +94,8 @@ def _scan_http_api(source: FarmerDataSource, db: Session) -> None:
     """
     List audio files from the farmer's HTTP API server for a specific hive
     and register any that have not been seen before.
-    
-    Files are organized by hive: recordings/<api_key>/<hive_name>/<filename>
+
+    Files are organized by hive: recordings/<api_key>/<hive_id>/<filename>
     """
     config = source.connection_config
     if not config:
@@ -120,64 +109,21 @@ def _scan_http_api(source: FarmerDataSource, db: Session) -> None:
     known = _known_paths_for_hive(source.hive_id, db)
 
     try:
-        # Get the hive name for this hive_id
-        hive = db.query(FarmerDataSource).filter(
-            FarmerDataSource.hive_id == source.hive_id
-        ).first()
-        
-        if not hive:
-            log_standalone("error", "http_api",
-                           f"Hive not found for source {source.source_id}",
-                           hive_id=str(source.hive_id))
-            return
-        
-        # Get the actual Hive record to get the hive_name
-        from api.models import Hive
-        hive_record = db.query(Hive).filter(Hive.hive_id == source.hive_id).first()
-        
-        if not hive_record or not hive_record.hive_name:
-            log_standalone("warning", "http_api",
-                           f"Hive has no name, cannot scan recordings",
-                           hive_id=str(source.hive_id))
-            return
-        
-        hive_name = hive_record.hive_name
-        
-        log_standalone("info", "http_api",
-                       f"📡 Listing recordings for hive '{hive_name}' ({source.hive_id})",
-                       hive_id=str(source.hive_id))
-        
-        # List recordings for this specific hive using hive_name
-        filepaths = list_recordings(config, hive_name=hive_name)
-        
-        log_standalone("info", "http_api",
-                       f"Found {len(filepaths)} files on remote server",
-                       hive_id=str(source.hive_id),
-                       details={"files": filepaths[:5]})  # Show first 5
-        
-        new_count = 0
+        # List recordings for this specific hive
+        filepaths = list_recordings(config, hive_id=str(source.hive_id))
+
         for filepath in filepaths:
             # filepath format: "Hive 22/filename.wav"
             if Path(filepath).suffix.lower() not in AUDIO_EXTENSIONS:
                 continue
-            
+
             # Use full URL as the canonical identifier (matches source_url)
             recording_url = get_recording_url(config, filepath)
-            
+
             if recording_url not in known:
                 fmt = Path(filepath).suffix.lstrip(".").lower()
                 _register_pending(recording_url, fmt, source, db)
-                new_count += 1
-        
-        if new_count > 0:
-            log_standalone("info", "http_api",
-                           f"✓ Registered {new_count} new audio files",
-                           hive_id=str(source.hive_id))
-        else:
-            log_standalone("info", "http_api",
-                           f"No new files (all {len(filepaths)} already known)",
-                           hive_id=str(source.hive_id))
-    
+
     except Exception as exc:
         log_standalone("error", "http_api",
                        f"❌ HTTP API scan failed: {exc}",
@@ -203,20 +149,12 @@ def process_pending_sources() -> None:
             .filter(AudioSource.status == "pending")
             .all()
         )
-        
-        if not pending:
-            log_standalone("info", "poller",
-                           "⏭️  Inference poller: no pending audio sources")
-            return
-        
-        log_standalone("info", "poller",
-                       f"🎵 Inference poller: processing {len(pending)} pending audio sources")
-        
         for record in pending:
             try:
                 audio_bytes = _fetch_audio_bytes(record, db)
                 db.close()
-                process_audio_file(record.audio_id, audio_bytes, record.hive_id)
+                process_audio_file(
+                    record.audio_id, audio_bytes, record.hive_id)
                 db = SessionLocal()
             except Exception as exc:
                 log_standalone("error", "poller",
@@ -240,18 +178,16 @@ def _fetch_audio_bytes(record: AudioSource, db: Session) -> bytes:
         .first()
     )
     if not data_source or not data_source.connection_config:
-        raise ValueError(f"No connection config found for hive {record.hive_id}")
+        raise ValueError(
+            f"No connection config found for hive {record.hive_id}")
 
     if data_source.source_type == "http_api":
         from api.http_connector import download_file_bytes as http_download
-        # Extract filepath from URL
-        # URL format: https://server.com/recordings/Hive 22/filename.wav
-        # Extract: "Hive 22/filename.wav"
-        if "/recordings/" in record.source_url:
-            filepath = record.source_url.split("/recordings/", 1)[1]
-        else:
-            raise ValueError(f"Invalid source_url format: {record.source_url}")
-        
+        # Extract filepath from URL (e.g., "https://server.com/recordings/hive-id/file.wav" -> "hive-id/file.wav")
+        # URL format: https://server.com/recordings/hive-id/filename.wav
+        filepath = "/".join(record.source_url.split("/recordings/")
+                            [1].split("/"))
         return http_download(data_source.connection_config, filepath)
     else:
-        raise ValueError(f"Unsupported source type: {data_source.source_type}. Only http_api is supported.")
+        raise ValueError(
+            f"Unsupported source type: {data_source.source_type}. Only http_api is supported.")

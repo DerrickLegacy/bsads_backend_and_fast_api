@@ -33,5 +33,10 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/bsads-api:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/bsads-api:${{ github.sha }}
-      # Railway watches Docker Hub for the latest tag and redeploys automatically.
-      # No extra step needed here.
+
+      # 4. Trigger Railway deployment
+      - name: Deploy to Railway
+        run: |
+          curl -X POST https://api.railway.app/project/${{ secrets.RAILWAY_PROJECT_ID }}/service/${{ secrets.RAILWAY_SERVICE_ID }}/redeploy \
+            -H "Authorization: Bearer ${{ secrets.RAILWAY_TOKEN }}" \
+            -H "Content-Type: application/json"

@@ -41,6 +41,10 @@ class Token(BaseModel):
     user: UserResponse
 
 
+class LogoutResponse(BaseModel):
+    detail: str = "Logged out successfully"
+
+
 # ---------------------------------------------------------------------------
 # Hive
 # ---------------------------------------------------------------------------
@@ -104,7 +108,7 @@ class AdvisoryResponse(BaseModel):
     condition_label: Optional[str]
     advisory_text: Optional[str]
     severity: str
-    actions: list[AdvisoryActionResponse]
+    actions: list[AdvisoryActionResponse] = []
 
     class Config:
         from_attributes = True

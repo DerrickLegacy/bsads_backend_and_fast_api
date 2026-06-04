@@ -8,11 +8,15 @@ Interactive API docs:
     http://localhost:8000/docs
 """
 
+import logging
+import traceback
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 
@@ -115,10 +119,42 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_logger = logging.getLogger("bsads.api")
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(_request: Request, exc: IntegrityError):
+    """Map unique-constraint violations to 400 instead of opaque 500."""
+    orig = getattr(exc, "orig", None)
+    detail = str(orig) if orig else str(exc)
+    if "email" in detail.lower():
+        msg = "Email already registered"
+    elif "phone" in detail.lower():
+        msg = "Phone number already registered"
+    else:
+        msg = "A record with these details already exists"
+    _logger.warning("IntegrityError: %s", detail)
+    return JSONResponse(status_code=400, content={"detail": msg})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_request: Request, exc: Exception):
+    """Log full trace server-side; return message in JSON for debugging."""
+    _logger.exception("Unhandled error on %s %s", _request.method, _request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": str(exc),
+            "type": type(exc).__name__,
+            "path": _request.url.path,
+        },
+    )
+
 
 app.include_router(auth.router)
 app.include_router(hives.router)
