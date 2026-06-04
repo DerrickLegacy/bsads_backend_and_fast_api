@@ -16,8 +16,9 @@ class Settings(BaseSettings):
     hf_model_id: str = ""               # HF model repo (informational / CI use)
 
     # Background poller timing
-    poll_interval_seconds: int = 30      # how often discovery + inference jobs run
-    poll_offset_seconds: int = 10        # offset so inference runs after discovery
+    poll_interval_seconds: int = 60      # how often discovery + inference jobs run (increased to 60s)
+    poll_offset_seconds: int = 15        # offset so inference runs after discovery
+    recovery_interval_minutes: int = 5   # how often to check for stuck records
 
     # HuggingFace Gradio client timeout
     inference_timeout_seconds: int = 240

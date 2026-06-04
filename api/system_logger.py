@@ -64,7 +64,25 @@ def log_standalone(
     audio_id: str | None = None,
     details: dict[str, Any] | None = None,
 ) -> None:
-    """Open its own session, write, commit, and close. For use in background threads / pollers."""
+    """
+    Open its own session, write, commit, and close. For use in background threads / pollers.
+    Also prints to console for real-time monitoring.
+    """
+    # Print to console for real-time visibility
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    level_emoji = {
+        "info": "ℹ️",
+        "warning": "⚠️",
+        "error": "❌",
+        "critical": "🔥"
+    }.get(level, "•")
+    
+    console_msg = f"[{timestamp}] {level_emoji} [{event_type}] {message}"
+    if hive_id:
+        console_msg += f" (hive: {hive_id[:8]}...)"
+    print(console_msg)
+    
+    # Write to database
     db: Session = SessionLocal()
     try:
         entry = SystemLog(

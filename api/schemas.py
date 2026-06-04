@@ -76,6 +76,8 @@ class HiveResponse(BaseModel):
 class HiveCreateResponse(HiveResponse):
     """Returned only on POST /hives — includes the suggested remote folder path."""
     suggested_remote_folder: str
+    folder_created: bool = False
+    folder_creation_error: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

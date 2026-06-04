@@ -41,7 +41,14 @@ def scan_all_sources() -> None:
         )
         for source in sources:
             if source.source_type == "http_api":
-                _scan_http_api(source, db)
+                try:
+                    _scan_http_api(source, db)
+                except Exception as exc:
+                    # Log error but continue with other sources
+                    log_standalone("error", "http_api",
+                                   f"❌ Failed to scan source for hive {source.hive_id}: {exc}",
+                                   hive_id=str(source.hive_id),
+                                   details=exc_details(exc))
             else:
                 log_standalone("warning", "poller",
                                f"Unsupported source type: {source.source_type}. Only http_api is supported.",
@@ -106,7 +113,7 @@ def _scan_http_api(source: FarmerDataSource, db: Session) -> None:
         filepaths = list_recordings(config, hive_id=str(source.hive_id))
 
         for filepath in filepaths:
-            # filepath format: "hive-id/filename.wav"
+            # filepath format: "Hive 22/filename.wav"
             if Path(filepath).suffix.lower() not in AUDIO_EXTENSIONS:
                 continue
 
@@ -119,7 +126,7 @@ def _scan_http_api(source: FarmerDataSource, db: Session) -> None:
 
     except Exception as exc:
         log_standalone("error", "http_api",
-                       f"HTTP API scan failed: {exc}",
+                       f"❌ HTTP API scan failed: {exc}",
                        hive_id=str(source.hive_id),
                        details=exc_details(exc))
 
@@ -133,7 +140,7 @@ def _scan_http_api(source: FarmerDataSource, db: Session) -> None:
 
 def process_pending_sources() -> None:
     """
-    Pick up every pending AudioSource, fetch bytes via SSH, and run inference.
+    Pick up every pending AudioSource, fetch bytes via HTTP API, and run inference.
     """
     db: Session = SessionLocal()
     try:
