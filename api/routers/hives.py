@@ -232,7 +232,22 @@ def list_hives(
     List hives (excludes deleted hives).
     - Admin: all active hives in the system (optionally filtered by ?search=).
     - Farmer: only their own active hives.
+    
+    Returns last_inference_at: timestamp of the most recent inference for each hive.
     """
+    from sqlalchemy import func
+    from api.models import InferenceResult
+    
+    # Subquery to get the latest inference timestamp for each hive
+    latest_inference_subq = (
+        db.query(
+            InferenceResult.hive_id,
+            func.max(InferenceResult.analyzed_at).label('last_inference_at')
+        )
+        .group_by(InferenceResult.hive_id)
+        .subquery()
+    )
+    
     q = db.query(Hive).filter(Hive.is_deleted == False)
 
     if current_user.role != "admin":
@@ -247,7 +262,37 @@ def list_hives(
             )
         )
 
-    return q.order_by(Hive.created_at.desc()).all()
+    # Left join with the latest inference subquery
+    q = q.outerjoin(latest_inference_subq, Hive.hive_id == latest_inference_subq.c.hive_id)
+    
+    hives = q.order_by(Hive.created_at.desc()).all()
+    
+    # Build response with last_inference_at
+    result = []
+    for hive in hives:
+        # Get the last inference timestamp for this hive
+        last_inference = (
+            db.query(InferenceResult.analyzed_at)
+            .filter(InferenceResult.hive_id == hive.hive_id)
+            .order_by(InferenceResult.analyzed_at.desc())
+            .first()
+        )
+        
+        hive_dict = {
+            "hive_id": hive.hive_id,
+            "owner_id": hive.owner_id,
+            "hive_name": hive.hive_name,
+            "hive_location": hive.hive_location,
+            "hive_type": hive.hive_type,
+            "installation_date": hive.installation_date,
+            "current_state": hive.current_state,
+            "latitude": float(hive.latitude) if hive.latitude is not None else None,
+            "longitude": float(hive.longitude) if hive.longitude is not None else None,
+            "last_inference_at": last_inference[0] if last_inference else None
+        }
+        result.append(hive_dict)
+    
+    return result
 
 
 @router.get("/{hive_id}", response_model=HiveDetailResponse)

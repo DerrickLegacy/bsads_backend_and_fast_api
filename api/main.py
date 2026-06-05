@@ -9,6 +9,7 @@ Interactive API docs:
 """
 
 import logging
+import sys
 import traceback
 from contextlib import asynccontextmanager
 
@@ -21,6 +22,18 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 
 from api.config import ROOT, settings
+
+# ---------------------------------------------------------------------------
+# Enhanced logging configuration for production visibility
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger("bsads")
 from api.database import Base, SessionLocal, engine
 from api.poller_concurrent import (
     process_pending_sources_concurrent as process_pending_sources,
@@ -78,28 +91,42 @@ _scheduler.add_job(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- startup ---
+    logger.info("=" * 60)
+    logger.info("🐝 BSADS API Starting Up...")
+    logger.info("=" * 60)
+    
     Base.metadata.create_all(bind=engine)
     (ROOT / settings.upload_dir).mkdir(parents=True, exist_ok=True)
 
     db = SessionLocal()
     try:
+        logger.info("Seeding initial data...")
         seed_initial_data(db)
+        logger.info("✓ Initial data seeded successfully")
+    except Exception as e:
+        logger.error(f"✗ Failed to seed data: {e}")
+        raise
     finally:
         db.close()
 
     _scheduler.start()
 
-    print("✓ Database tables ready")
-    print("✓ Upload directory ready")
-    print(f"✓ HuggingFace Space: {settings.hf_space_name}")
-    print(f"✓ Discovery poller started (CONCURRENT) — scanning every {settings.poll_interval_seconds}s")
-    print(f"✓ Inference poller started (CONCURRENT + BATCHED) — processing every {settings.poll_interval_seconds}s")
-    print(f"✓ Recovery job started — checking for stuck records every {settings.recovery_interval_minutes} minutes")
+    logger.info("✓ Database tables ready")
+    logger.info("✓ Upload directory ready")
+    logger.info(f"✓ HuggingFace Space: {settings.hf_space_name}")
+    logger.info(f"✓ Discovery poller started (CONCURRENT) — scanning every {settings.poll_interval_seconds}s")
+    logger.info(f"✓ Inference poller started (CONCURRENT + BATCHED) — processing every {settings.poll_interval_seconds}s")
+    logger.info(f"✓ Recovery job started — checking for stuck records every {settings.recovery_interval_minutes} minutes")
+    logger.info("=" * 60)
+    logger.info("🚀 BSADS API Ready!")
+    logger.info("=" * 60)
 
     yield
 
     # --- shutdown ---
+    logger.info("Shutting down background scheduler...")
     _scheduler.shutdown(wait=False)
+    logger.info("✓ Shutdown complete")
 
 
 app = FastAPI(
@@ -138,14 +165,14 @@ async def integrity_error_handler(_request: Request, exc: IntegrityError):
         msg = "Phone number already registered"
     else:
         msg = "A record with these details already exists"
-    _logger.warning("IntegrityError: %s", detail)
+    logger.warning(f"IntegrityError on {_request.method} {_request.url.path}: {detail}")
     return JSONResponse(status_code=400, content={"detail": msg})
 
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(_request: Request, exc: Exception):
     """Log full trace server-side; return message in JSON for debugging."""
-    _logger.exception("Unhandled error on %s %s", _request.method, _request.url.path)
+    logger.exception(f"Unhandled error on {_request.method} {_request.url.path}")
     return JSONResponse(
         status_code=500,
         content={
@@ -154,6 +181,15 @@ async def unhandled_exception_handler(_request: Request, exc: Exception):
             "path": _request.url.path,
         },
     )
+
+
+# Log incoming requests for production debugging
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"→ {request.method} {request.url.path}")
+    response = await call_next(request)
+    logger.info(f"← {request.method} {request.url.path} - {response.status_code}")
+    return response
 
 
 app.include_router(auth.router)

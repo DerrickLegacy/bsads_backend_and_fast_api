@@ -68,6 +68,7 @@ class HiveResponse(BaseModel):
     current_state: str
     latitude: Optional[float]
     longitude: Optional[float]
+    last_inference_at: Optional[datetime] = None  # Timestamp of the most recent inference
 
     class Config:
         from_attributes = True
