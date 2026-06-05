@@ -87,6 +87,8 @@ class AudioSource(Base):
     captured_at         = Column(DateTime, nullable=True)
     ingestion_timestamp = Column(DateTime, default=datetime.utcnow)
     status              = Column(String(20), nullable=False, default="pending")
+    created_at          = Column(DateTime, default=datetime.utcnow)
+    updated_at          = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     hive = relationship("Hive", back_populates="audio_sources")
 
@@ -250,3 +252,16 @@ class SystemLog(Base):
     user_id    = Column(UUID(as_uuid=False), ForeignKey("users.user_id",          ondelete="SET NULL"), nullable=True)
     audio_id   = Column(UUID(as_uuid=False), ForeignKey("audio_sources.audio_id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+# ---------------------------------------------------------------------------
+# SystemSettings  (app-wide key-value configuration store)
+# ---------------------------------------------------------------------------
+class SystemSettings(Base):
+    __tablename__ = "system_settings"
+
+    id         = Column(BigInteger, primary_key=True, autoincrement=True)
+    key        = Column(String, nullable=False, unique=True)
+    value      = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
