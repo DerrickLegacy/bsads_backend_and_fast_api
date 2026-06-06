@@ -32,6 +32,12 @@ if [ -n "$DB_URL" ]; then
     fi
     
     echo ""
+    echo "📝 Applying audio sources timestamps migration..."
+    if psql "$DB_URL" -f migrations/add_timestamps_to_audio_sources.sql 2>&1 | grep -v "^$"; then
+        echo "✓ Audio sources timestamps migration completed"
+    fi
+    
+    echo ""
     echo "✓ All migrations applied successfully"
 else
     echo "⚠️  WARNING: No database URL found!"
