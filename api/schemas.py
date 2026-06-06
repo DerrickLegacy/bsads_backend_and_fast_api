@@ -341,6 +341,7 @@ class HiveDetailResponse(HiveResponse):
     alert_title: Optional[str] = None
     alert_message: Optional[str] = None
     acknowledged: bool = False
+    confidence_score: Optional[float] = None  # Confidence score from latest inference
     metric_series: list[MetricPoint] = []
 
 

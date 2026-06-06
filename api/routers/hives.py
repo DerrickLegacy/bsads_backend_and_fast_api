@@ -5,7 +5,7 @@ import requests
 
 from api.config import settings
 from api.database import get_db
-from api.models import Alert, Advisory, EnvironmentalData, FarmerDataSource, Hive, User
+from api.models import Alert, Advisory, EnvironmentalData, FarmerDataSource, Hive, InferenceResult, User
 from api.routers.auth import get_current_user
 from sqlalchemy import or_
 
@@ -329,6 +329,8 @@ def get_hive(
     alert_title = None
     alert_message = None
     acknowledged = False
+    confidence_score = None
+    
     if latest_alert:
         advisory: Advisory | None = latest_alert.advisory
         alert_title = (
@@ -342,6 +344,16 @@ def get_hive(
             else latest_alert.recommended_action
         )
         acknowledged = latest_alert.action_status == "acknowledged"
+        
+        # Get confidence score from the latest inference
+        if latest_alert.inference_id:
+            latest_inference = (
+                db.query(InferenceResult)
+                .filter(InferenceResult.inference_id == latest_alert.inference_id)
+                .first()
+            )
+            if latest_inference:
+                confidence_score = float(latest_inference.confidence_score)
 
     # Last 7 environmental readings for the metric chart
     env_rows = (
@@ -373,6 +385,7 @@ def get_hive(
         alert_title=alert_title,
         alert_message=alert_message,
         acknowledged=acknowledged,
+        confidence_score=confidence_score,
         metric_series=metric_series,
     )
 
