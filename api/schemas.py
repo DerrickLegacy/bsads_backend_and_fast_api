@@ -337,12 +337,21 @@ class MetricPoint(BaseModel):
     humidity_percent: float
 
 
+class WeatherData(BaseModel):
+    temperature: float
+    humidity: float
+    timestamp: str
+    weather_description: Optional[str] = None
+
+
 class HiveDetailResponse(HiveResponse):
     alert_title: Optional[str] = None
     alert_message: Optional[str] = None
     acknowledged: bool = False
     confidence_score: Optional[float] = None  # Confidence score from latest inference
     metric_series: list[MetricPoint] = []
+    weather: Optional[WeatherData] = None  # Current weather at hive location
+    last_analysis_time: Optional[str] = None  # Human-readable last analysis time
 
 
 # ---------------------------------------------------------------------------
