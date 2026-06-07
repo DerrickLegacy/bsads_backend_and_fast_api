@@ -302,7 +302,7 @@ def get_hive(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Return hive detail including latest alert info and recent env metrics.
+    Return hive detail including latest alert info, recent env metrics, and weather data.
     Used by the mobile detail screen.
     """
     hive = (
@@ -330,6 +330,7 @@ def get_hive(
     alert_message = None
     acknowledged = False
     confidence_score = None
+    last_analysis_time = None
     
     if latest_alert:
         advisory: Advisory | None = latest_alert.advisory
@@ -345,7 +346,7 @@ def get_hive(
         )
         acknowledged = latest_alert.action_status == "acknowledged"
         
-        # Get confidence score from the latest inference
+        # Get confidence score and timestamp from the latest inference
         if latest_alert.inference_id:
             latest_inference = (
                 db.query(InferenceResult)
@@ -354,6 +355,8 @@ def get_hive(
             )
             if latest_inference:
                 confidence_score = float(latest_inference.confidence_score)
+                if latest_inference.analyzed_at:
+                    last_analysis_time = latest_inference.analyzed_at.isoformat()
 
     # Last 7 environmental readings for the metric chart
     env_rows = (
@@ -372,6 +375,19 @@ def get_hive(
         for r in reversed(env_rows)
     ]
 
+    # Fetch current weather if coordinates are available
+    weather_data = None
+    if hive.latitude is not None and hive.longitude is not None:
+        from api.weather_service import fetch_weather, get_weather_description
+        weather = fetch_weather(float(hive.latitude), float(hive.longitude))
+        if weather:
+            weather_data = {
+                "temperature": weather.temperature,
+                "humidity": weather.humidity,
+                "timestamp": weather.timestamp,
+                "weather_description": get_weather_description(weather.weather_code)
+            }
+
     return HiveDetailResponse(
         hive_id=hive.hive_id,
         owner_id=hive.owner_id,
@@ -387,6 +403,8 @@ def get_hive(
         acknowledged=acknowledged,
         confidence_score=confidence_score,
         metric_series=metric_series,
+        weather=weather_data,
+        last_analysis_time=last_analysis_time,
     )
 
 

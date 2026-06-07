@@ -48,6 +48,7 @@ from api.routers.alerts import hive_alerts_router, mobile_alerts_router
 from api.routers.dashboard import router as dashboard_router
 from api.routers.logs import router as logs_router
 from api.routers.users import router as users_router
+from api.routers.weather import router as weather_router
 
 # ---------------------------------------------------------------------------
 # Background scheduler — scans farmer data source folders concurrently
@@ -203,6 +204,7 @@ app.include_router(users_router)
 app.include_router(advisory_templates_router)
 app.include_router(admin_views_router)
 app.include_router(logs_router)
+app.include_router(weather_router)
 
 
 @app.get("/health", tags=["Health"])

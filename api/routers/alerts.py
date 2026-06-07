@@ -40,6 +40,79 @@ def get_hive_alerts(
     return query.order_by(Alert.alert_timestamp.desc()).all()
 
 
+@hive_alerts_router.get("/{hive_id}/alerts/debug", tags=["Debug"])
+def debug_hive_alerts(
+    hive_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Debug endpoint to check why alerts might be empty for a hive.
+    Returns information about the hive, its inferences, and alerts.
+    """
+    from api.models import InferenceResult
+    
+    q = db.query(Hive).filter(Hive.hive_id == hive_id, Hive.is_deleted == False)
+    if current_user.role != "admin":
+        q = q.filter(Hive.owner_id == current_user.user_id)
+
+    hive = q.first()
+    if not hive:
+        raise HTTPException(status_code=404, detail="Hive not found")
+
+    # Count all alerts for this hive
+    total_alerts = db.query(Alert).filter(Alert.hive_id == hive_id).count()
+    pending_alerts = db.query(Alert).filter(
+        Alert.hive_id == hive_id,
+        Alert.action_status == "pending"
+    ).count()
+    
+    # Count inferences
+    total_inferences = db.query(InferenceResult).filter(
+        InferenceResult.hive_id == hive_id
+    ).count()
+    
+    # Get latest inference
+    latest_inference = db.query(InferenceResult).filter(
+        InferenceResult.hive_id == hive_id
+    ).order_by(InferenceResult.analyzed_at.desc()).first()
+    
+    # Get latest alert
+    latest_alert = db.query(Alert).filter(
+        Alert.hive_id == hive_id
+    ).order_by(Alert.alert_timestamp.desc()).first()
+    
+    return {
+        "hive_id": str(hive_id),
+        "hive_name": hive.hive_name,
+        "hive_state": hive.current_state,
+        "total_alerts": total_alerts,
+        "pending_alerts": pending_alerts,
+        "total_inferences": total_inferences,
+        "latest_inference": {
+            "inference_id": str(latest_inference.inference_id),
+            "hive_state": latest_inference.hive_state,
+            "confidence_score": float(latest_inference.confidence_score),
+            "analyzed_at": latest_inference.analyzed_at.isoformat() if latest_inference.analyzed_at else None,
+        } if latest_inference else None,
+        "latest_alert": {
+            "alert_id": str(latest_alert.alert_id),
+            "severity_level": latest_alert.severity_level,
+            "action_status": latest_alert.action_status,
+            "recommended_action": latest_alert.recommended_action,
+            "alert_timestamp": latest_alert.alert_timestamp.isoformat() if latest_alert.alert_timestamp else None,
+        } if latest_alert else None,
+        "explanation": (
+            "No alerts exist for this hive yet. Alerts are created when audio recordings are analyzed "
+            "and the inference engine detects conditions that require farmer attention (e.g., swarming, "
+            "queenless, pest infestation). Make sure audio recordings are being uploaded and processed."
+        ) if total_alerts == 0 else (
+            f"This hive has {total_alerts} total alerts, {pending_alerts} pending. "
+            "Alerts may be empty on the mobile screen if they have all been acknowledged."
+        )
+    }
+
+
 @hive_alerts_router.patch("/{hive_id}/alerts/{alert_id}/acknowledge", response_model=AlertResponse)
 def acknowledge_hive_alert(
     hive_id: str,
