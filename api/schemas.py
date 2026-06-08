@@ -13,7 +13,8 @@ class UserRegister(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     role: str = "farmer"
-    server_url: Optional[str] = None  # Farmer's external server URL (e.g., https://abc123.ngrok-free.dev)
+    # Farmer's external server URL (e.g., https://abc123.ngrok-free.dev)
+    server_url: Optional[str] = None
     api_key: Optional[str] = None     # API key for accessing farmer's server
 
 
@@ -55,7 +56,8 @@ class HiveCreate(BaseModel):
     installation_date: Optional[date] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    owner_id: Optional[str] = None  # admin-only; farmers always own their own hives
+    # admin-only; farmers always own their own hives
+    owner_id: Optional[str] = None
 
 
 class HiveResponse(BaseModel):
@@ -68,7 +70,8 @@ class HiveResponse(BaseModel):
     current_state: str
     latitude: Optional[float]
     longitude: Optional[float]
-    last_inference_at: Optional[datetime] = None  # Timestamp of the most recent inference
+    # Timestamp of the most recent inference
+    last_inference_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -295,9 +298,6 @@ class DashboardStatusCounts(BaseModel):
 class DashboardKeyMetrics(BaseModel):
     temperature_c: Optional[float] = None
     humidity_percent: Optional[float] = None
-    population_k_bees: Optional[float] = None
-    nectar_flow_kg_per_day: Optional[float] = None
-
 
 class DashboardResponse(BaseModel):
     total_hives: int
@@ -348,10 +348,12 @@ class HiveDetailResponse(HiveResponse):
     alert_title: Optional[str] = None
     alert_message: Optional[str] = None
     acknowledged: bool = False
-    confidence_score: Optional[float] = None  # Confidence score from latest inference
+    # Confidence score from latest inference
+    confidence_score: Optional[float] = None
     metric_series: list[MetricPoint] = []
     weather: Optional[WeatherData] = None  # Current weather at hive location
-    last_analysis_time: Optional[str] = None  # Human-readable last analysis time
+    # Human-readable last analysis time
+    last_analysis_time: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

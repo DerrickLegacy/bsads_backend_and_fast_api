@@ -193,7 +193,13 @@ def _scan_http_api(source: FarmerDataSource, db: Session) -> None:
 
 
 def _register_pending(source_url: str, file_format: str, source: FarmerDataSource, db: Session) -> None:
-    """Insert an AudioSource row with status='pending'."""
+    """
+    Insert an AudioSource row with status='pending' and record environmental data.
+    Environmental data is recorded at audio capture time for accurate correlation.
+    """
+    from api.models import EnvironmentalData, Hive
+    from api.weather_service import fetch_weather
+    
     record = AudioSource(
         hive_id     = source.hive_id,
         source_url  = source_url,
@@ -202,10 +208,64 @@ def _register_pending(source_url: str, file_format: str, source: FarmerDataSourc
     )
     db.add(record)
     db.commit()
+    
     log_standalone("info", "poller",
                    "New audio file registered as pending",
                    hive_id=str(source.hive_id),
                    details={"source_url": source_url})
+    
+    # Record environmental data at the exact time of audio capture
+    try:
+        hive = db.query(Hive).filter(Hive.hive_id == source.hive_id).first()
+        
+        if not hive:
+            log_standalone("warning", "environmental_data",
+                           "Cannot record environmental data: hive not found",
+                           hive_id=str(source.hive_id))
+            return
+        
+        # Check if hive has coordinates
+        if not hive.latitude or not hive.longitude:
+            log_standalone("warning", "environmental_data",
+                           f"Cannot record environmental data: hive has no coordinates",
+                           hive_id=str(source.hive_id))
+            return
+        
+        # Fetch weather data
+        weather = fetch_weather(float(hive.latitude), float(hive.longitude))
+        
+        if not weather:
+            log_standalone("warning", "environmental_data",
+                           "Weather service unavailable, skipping environmental data recording",
+                           hive_id=str(source.hive_id))
+            return
+        
+        # Create environmental data record
+        env_data = EnvironmentalData(
+            hive_id=source.hive_id,
+            temperature=weather.temperature,
+            humidity=weather.humidity,
+        )
+        
+        db.add(env_data)
+        db.commit()
+        
+        log_standalone("info", "environmental_data",
+                       f"Recorded environmental data: temp={weather.temperature}°C, humidity={weather.humidity}%",
+                       hive_id=str(source.hive_id),
+                       details={
+                           "temperature": weather.temperature,
+                           "humidity": weather.humidity,
+                           "timestamp": weather.timestamp,
+                           "audio_source": source_url
+                       })
+    
+    except Exception as exc:
+        # Don't fail audio registration if weather recording fails
+        log_standalone("error", "environmental_data",
+                       f"Failed to record environmental data: {exc}",
+                       hive_id=str(source.hive_id),
+                       details=exc_details(exc))
 
 
 # ---------------------------------------------------------------------------

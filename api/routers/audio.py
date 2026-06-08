@@ -4,6 +4,7 @@ Manual audio upload endpoint.
 POST /audio/upload
   Farmer uploads a .wav file directly (alternative to using the watched folder).
   Returns HTTP 202 immediately; inference runs in a background task.
+  Environmental data is recorded at the time of upload to match audio capture time.
 """
 
 import shutil
@@ -14,10 +15,12 @@ from sqlalchemy.orm import Session
 
 from api.config import ROOT, settings
 from api.database import get_db
-from api.models import AudioSource, Hive, User
+from api.models import AudioSource, Hive, User, EnvironmentalData
 from api.processing import process_audio_file
 from api.routers.auth import get_current_user
 from api.schemas import AudioUploadResponse
+from api.system_logger import log, exc_details
+from api.weather_service import fetch_weather
 
 router = APIRouter(prefix="/audio", tags=["Audio"])
 
@@ -69,6 +72,9 @@ async def upload_audio(
     db.add(audio_record)
     db.commit()
     db.refresh(audio_record)
+    
+    # Record environmental data at audio capture time
+    _record_environmental_data_on_upload(hive, db)
 
     # Read bytes now (file handle is closed after the request) and queue inference
     audio_bytes = save_path.read_bytes()
@@ -84,3 +90,56 @@ async def upload_audio(
         hive_id  = hive_id,
         message  = "File received. Inference is running in the background.",
     )
+
+
+def _record_environmental_data_on_upload(hive: Hive, db: Session) -> None:
+    """
+    Record environmental data (weather conditions) at the time of audio upload.
+    This ensures the temperature and humidity data matches the exact time the audio was captured.
+    
+    Args:
+        hive: Hive object with latitude and longitude
+        db: Database session
+    """
+    try:
+        # Check if hive has coordinates
+        if not hive.latitude or not hive.longitude:
+            log(db, "warning", "environmental_data",
+                f"Cannot record environmental data: hive has no coordinates",
+                hive_id=str(hive.hive_id))
+            return
+        
+        # Fetch weather data
+        weather = fetch_weather(float(hive.latitude), float(hive.longitude))
+        
+        if not weather:
+            log(db, "warning", "environmental_data",
+                "Weather service unavailable, skipping environmental data recording",
+                hive_id=str(hive.hive_id))
+            return
+        
+        # Create environmental data record
+        env_data = EnvironmentalData(
+            hive_id=hive.hive_id,
+            temperature=weather.temperature,
+            humidity=weather.humidity,
+        )
+        
+        db.add(env_data)
+        db.commit()
+        
+        log(db, "info", "environmental_data",
+            f"Recorded environmental data on upload: temp={weather.temperature}°C, humidity={weather.humidity}%",
+            hive_id=str(hive.hive_id),
+            details={
+                "temperature": weather.temperature,
+                "humidity": weather.humidity,
+                "timestamp": weather.timestamp
+            })
+    
+    except Exception as exc:
+        # Don't fail the upload if weather recording fails
+        log(db, "error", "environmental_data",
+            f"Failed to record environmental data on upload: {exc}",
+            hive_id=str(hive.hive_id),
+            details=exc_details(exc))

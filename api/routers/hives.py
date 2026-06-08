@@ -332,6 +332,18 @@ def get_hive(
     confidence_score = None
     last_analysis_time = None
     
+    # Get the latest inference for this hive regardless of alert
+    latest_inference = (
+        db.query(InferenceResult)
+        .filter(InferenceResult.hive_id == hive_id)
+        .order_by(InferenceResult.analyzed_at.desc())
+        .first()
+    )
+    if latest_inference:
+        confidence_score = float(latest_inference.confidence_score) if latest_inference.confidence_score is not None else None
+        if latest_inference.analyzed_at:
+            last_analysis_time = latest_inference.analyzed_at.isoformat()
+    
     if latest_alert:
         advisory: Advisory | None = latest_alert.advisory
         alert_title = (
@@ -345,18 +357,6 @@ def get_hive(
             else latest_alert.recommended_action
         )
         acknowledged = latest_alert.action_status == "acknowledged"
-        
-        # Get confidence score and timestamp from the latest inference
-        if latest_alert.inference_id:
-            latest_inference = (
-                db.query(InferenceResult)
-                .filter(InferenceResult.inference_id == latest_alert.inference_id)
-                .first()
-            )
-            if latest_inference:
-                confidence_score = float(latest_inference.confidence_score)
-                if latest_inference.analyzed_at:
-                    last_analysis_time = latest_inference.analyzed_at.isoformat()
 
     # Last 7 environmental readings for the metric chart
     env_rows = (
@@ -398,6 +398,7 @@ def get_hive(
         current_state=hive.current_state,
         latitude=float(hive.latitude) if hive.latitude is not None else None,
         longitude=float(hive.longitude) if hive.longitude is not None else None,
+        last_inference_at=latest_inference.analyzed_at if latest_inference else None,
         alert_title=alert_title,
         alert_message=alert_message,
         acknowledged=acknowledged,
