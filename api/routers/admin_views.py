@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
 from api.database import get_db
-from api.models import Advisory, Hive, InferenceResult, User
+from api.models import Advisory, AdvisoryAction, AdvisoryTemplate, Hive, InferenceResult, User
 from api.routers.auth import get_current_user
-from api.schemas import AdminAdvisoryResponse, InferenceResponse
+from api.schemas import AdvisoryResponse, AdvisoryActionResponse, AdminAdvisoryResponse, InferenceResponse, AlertResponse
 
 router = APIRouter(tags=["Inferences & Advisories"])
 
@@ -18,6 +18,62 @@ def _hive_ids_for(user: User, db: Session) -> list[str] | None:
     if user.role == "admin":
         return None
     return [r.hive_id for r in db.query(Hive.hive_id).filter(Hive.owner_id == user.user_id).all()]
+
+
+def _build_inference_response(inference: InferenceResult, db: Session) -> InferenceResponse:
+    """
+    Build InferenceResponse with manually constructed advisory data.
+    The advisory field comes from advisory_actions → advisory → template path.
+    """
+    # Get alert data
+    alert_data = None
+    if inference.alert:
+        alert_data = AlertResponse(
+            alert_id=str(inference.alert.alert_id),
+            hive_id=str(inference.alert.hive_id),
+            severity_level=inference.alert.severity_level,
+            recommended_action=inference.alert.recommended_action,
+            action_status=inference.alert.action_status,
+            alert_timestamp=inference.alert.alert_timestamp
+        )
+    
+    # Get advisory data from advisory_actions
+    advisory_data = None
+    if inference.advisory_actions:
+        # Get the first advisory action to build the advisory response
+        first_action = inference.advisory_actions[0]
+        if first_action.advisory:
+            advisory = first_action.advisory
+            template = advisory.template
+            
+            # Build advisory response from Advisory and Template
+            advisory_data = AdvisoryResponse(
+                advisory_id=str(advisory.advisory_id),
+                advisory_type=template.advisory_type if template else "Reactive",
+                condition_label=template.hive_state if template else None,
+                advisory_text=advisory.action_description,
+                severity=template.severity if template else "info",
+                actions=[
+                    AdvisoryActionResponse(
+                        action_id=str(action.action_id),
+                        action_description=action.action_description,
+                        priority_level=action.priority_level,
+                        status=action.status
+                    )
+                    for action in inference.advisory_actions
+                ]
+            )
+    
+    return InferenceResponse(
+        inference_id=str(inference.inference_id),
+        hive_id=str(inference.hive_id),
+        hive_state=inference.hive_state,
+        confidence_score=float(inference.confidence_score),
+        inference_latency_ms=int(inference.inference_latency_ms) if inference.inference_latency_ms else None,
+        created_at=inference.created_at,
+        alert=alert_data,
+        advisory=advisory_data
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +93,7 @@ def list_inferences(
         db.query(InferenceResult)
         .options(
             joinedload(InferenceResult.alert),
-            joinedload(InferenceResult.advisory).joinedload(Advisory.actions),
+            joinedload(InferenceResult.advisory_actions),
         )
     )
 
@@ -49,7 +105,10 @@ def list_inferences(
     elif allowed_ids is not None:
         q = q.filter(InferenceResult.hive_id.in_(allowed_ids))
 
-    return q.order_by(InferenceResult.created_at.desc()).limit(limit).all()
+    results = q.order_by(InferenceResult.created_at.desc()).limit(limit).all()
+    
+    # Manually construct responses with advisory data
+    return [_build_inference_response(r, db) for r in results]
 
 
 @router.get("/inferences/{inference_id}", response_model=InferenceResponse)
@@ -64,7 +123,7 @@ def get_inference(
         db.query(InferenceResult)
         .options(
             joinedload(InferenceResult.alert),
-            joinedload(InferenceResult.advisory).joinedload(Advisory.actions),
+            joinedload(InferenceResult.advisory_actions),
         )
         .filter(InferenceResult.inference_id == inference_id)
         .first()
@@ -75,7 +134,7 @@ def get_inference(
     if allowed_ids is not None and result.hive_id not in allowed_ids:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    return result
+    return _build_inference_response(result, db)
 
 
 # ---------------------------------------------------------------------------
