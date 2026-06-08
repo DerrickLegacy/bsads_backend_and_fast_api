@@ -11,6 +11,9 @@ Flow:
   3. Save InferenceResult
   4. Generate alert + advisory if state is dangerous
   5. Mark AudioSource as "processed" (or "failed" on error)
+
+Note: Environmental data is recorded when the audio source is first registered,
+not during processing, to ensure temperature/humidity match the exact audio capture time.
 """
 
 import traceback

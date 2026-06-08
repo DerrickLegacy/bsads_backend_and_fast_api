@@ -13,7 +13,8 @@ from api.schemas import (
 
 router = APIRouter(tags=["Dashboard"])
 
-_ACTIVE_STATES = {"normal", "pre_swarm", "swarm", "missing_queen", "queenbee_present", "pest_infested"}
+_ACTIVE_STATES = {"normal", "pre_swarm", "swarm",
+                  "missing_queen", "queenbee_present", "pest_infested"}
 
 
 @router.get("/dashboard", response_model=DashboardResponse)
@@ -73,10 +74,10 @@ def get_dashboard(
             return round(sum(filtered) / len(filtered), 2) if filtered else None
 
         metrics = DashboardKeyMetrics(
-            temperature_c=_avg([float(r.temperature) if r.temperature else None for r in env_records]),
-            humidity_percent=_avg([float(r.humidity) if r.humidity else None for r in env_records]),
-            population_k_bees=_avg([float(r.population_k_bees) if r.population_k_bees else None for r in env_records]),
-            nectar_flow_kg_per_day=_avg([float(r.nectar_flow_kg_per_day) if r.nectar_flow_kg_per_day else None for r in env_records]),
+            temperature_c=_avg(
+                [float(r.temperature) if r.temperature else None for r in env_records]),
+            humidity_percent=_avg(
+                [float(r.humidity) if r.humidity else None for r in env_records]),
         )
 
     return DashboardResponse(
