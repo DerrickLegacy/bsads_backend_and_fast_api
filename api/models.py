@@ -73,7 +73,6 @@ class Hive(Base):
     audio_sources = relationship("AudioSource", back_populates="hive")
     inference_results = relationship("InferenceResult", back_populates="hive")
     alerts = relationship("Alert", back_populates="hive")
-    advisories = relationship("Advisory", back_populates="hive")
     env_records = relationship("EnvironmentalData", back_populates="hive")
 
 
@@ -117,7 +116,7 @@ class EnvironmentalData(Base):
 
 
 # ---------------------------------------------------------------------------
-# AdvisoryTemplate  (static lookup — one row per hive_state classification)
+# AdvisoryTemplate  (classification definitions only)
 # Managed via the beehive-app admin panel.
 # ---------------------------------------------------------------------------
 class AdvisoryTemplate(Base):
@@ -126,10 +125,10 @@ class AdvisoryTemplate(Base):
     template_id = Column(BigInteger, primary_key=True, autoincrement=True)
     prediction_code = Column(Numeric, nullable=False, unique=True)
     hive_state = Column(String(50), nullable=False, unique=True)
-    condition_label = Column(String(100), nullable=False)
-    advisory_text = Column(Text, nullable=False)
     advisory_type = Column(String(30), nullable=False, default="Reactive")
     severity = Column(String(20), nullable=False, default="info")
+    min_confidence_threshold = Column(Numeric(5, 4), nullable=False, default=0.70)
+    description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow,
                         onupdate=datetime.utcnow)
@@ -159,53 +158,64 @@ class InferenceResult(Base):
 
     hive = relationship("Hive", back_populates="inference_results")
     alert = relationship("Alert", back_populates="inference", uselist=False)
-    advisory = relationship(
-        "Advisory", back_populates="inference", uselist=False)
+    advisory_actions = relationship("AdvisoryAction", back_populates="inference")
 
 
 # ---------------------------------------------------------------------------
-# Advisory  (generated per-inference — linked to a template for traceability)
+# Advisory  (reusable action library for each classification)
 # ---------------------------------------------------------------------------
 class Advisory(Base):
     __tablename__ = "advisories"
 
     advisory_id = Column(UUID(as_uuid=False),
                          primary_key=True, default=new_uuid)
-    inference_id = Column(UUID(as_uuid=False), ForeignKey(
-        "inference_results.inference_id", ondelete="CASCADE"), nullable=False)
-    hive_id = Column(UUID(as_uuid=False), ForeignKey(
-        "hives.hive_id", ondelete="CASCADE"), nullable=False)
     template_id = Column(BigInteger, ForeignKey(
-        "advisory_templates.template_id", ondelete="SET NULL"), nullable=True)
-    advisory_type = Column(String(30), nullable=False, default="Reactive")
-    condition_label = Column(String(100), nullable=True)
-    advisory_text = Column(Text, nullable=True)
-    severity = Column(String(20), nullable=False, default="info")
+        "advisory_templates.template_id", ondelete="CASCADE"), nullable=False)
+    action_title = Column(String(200), nullable=False)
+    action_description = Column(Text, nullable=False)
+    priority_level = Column(String(20), nullable=False, default="medium")
+    confidence_threshold_min = Column(Numeric(5, 4), nullable=False, default=0.70)
+    confidence_threshold_max = Column(Numeric(5, 4), nullable=False, default=1.00)
+    action_order = Column(BigInteger, nullable=False, default=1)
+    is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow,
                         onupdate=datetime.utcnow)
 
-    hive = relationship("Hive", back_populates="advisories")
-    inference = relationship("InferenceResult", back_populates="advisory")
     template = relationship("AdvisoryTemplate", back_populates="advisories")
     actions = relationship("AdvisoryAction", back_populates="advisory")
 
 
 # ---------------------------------------------------------------------------
-# AdvisoryAction  (individual checklist items inside a generated advisory)
+# AdvisoryAction  (specific actions suggested per hive inference)
 # ---------------------------------------------------------------------------
 class AdvisoryAction(Base):
     __tablename__ = "advisory_actions"
 
     action_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    inference_id = Column(UUID(as_uuid=False), ForeignKey(
+        "inference_results.inference_id", ondelete="CASCADE"), nullable=False)
+    hive_id = Column(UUID(as_uuid=False), ForeignKey(
+        "hives.hive_id", ondelete="CASCADE"), nullable=False)
     advisory_id = Column(UUID(as_uuid=False), ForeignKey(
         "advisories.advisory_id", ondelete="CASCADE"), nullable=False)
+    template_id = Column(BigInteger, ForeignKey(
+        "advisory_templates.template_id", ondelete="CASCADE"), nullable=False)
+    confidence_score = Column(Numeric(5, 4), nullable=False)
+    action_title = Column(String(200), nullable=False)
     action_description = Column(Text, nullable=False)
     priority_level = Column(String(20), nullable=False, default="medium")
     status = Column(String(20), nullable=False, default="pending")
+    completed_at = Column(DateTime, nullable=True)
+    notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow,
+                        onupdate=datetime.utcnow)
 
+    inference = relationship("InferenceResult")
+    hive = relationship("Hive")
     advisory = relationship("Advisory", back_populates="actions")
+    template = relationship("AdvisoryTemplate")
 
 
 # ---------------------------------------------------------------------------
@@ -220,8 +230,6 @@ class Alert(Base):
         "hives.hive_id", ondelete="CASCADE"), nullable=False)
     inference_id = Column(UUID(as_uuid=False), ForeignKey(
         "inference_results.inference_id", ondelete="CASCADE"), nullable=False)
-    advisory_id = Column(UUID(as_uuid=False), ForeignKey(
-        "advisories.advisory_id", ondelete="SET NULL"), nullable=True)
     severity_level = Column(String(20), nullable=False)
     recommended_action = Column(Text, nullable=True)
     action_status = Column(String(20), nullable=False, default="pending")
@@ -232,8 +240,6 @@ class Alert(Base):
 
     hive = relationship("Hive", back_populates="alerts")
     inference = relationship("InferenceResult", back_populates="alert")
-    advisory = relationship("Advisory", foreign_keys=[
-                            advisory_id], uselist=False)
 
 
 # ---------------------------------------------------------------------------

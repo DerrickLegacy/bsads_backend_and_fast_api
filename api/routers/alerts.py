@@ -173,25 +173,83 @@ def _to_mobile(alert: Alert, index: int = 0) -> MobileAlertResponse:
 
 
 def _to_mobile_detail(alert: Alert) -> MobileAlertDetailResponse:
-    advisory = _safe_advisory(alert)
+    from api.models import AudioSource, InferenceResult
+    from api.database import SessionLocal
+    
+    advisory_obj = _safe_advisory(alert)
     title = (
-        advisory.condition_label
-        if advisory and advisory.condition_label
+        advisory_obj.condition_label
+        if advisory_obj and advisory_obj.condition_label
         else (alert.recommended_action or "Alert")
     )
     details = (
-        advisory.advisory_text
-        if advisory and advisory.advisory_text
+        advisory_obj.advisory_text
+        if advisory_obj and advisory_obj.advisory_text
         else (alert.recommended_action or "")
     )
+    
+    # Get the hive name
+    db = SessionLocal()
+    try:
+        hive = db.query(Hive).filter(Hive.hive_id == alert.hive_id).first()
+        hive_name = hive.hive_name if hive else None
+    finally:
+        db.close()
+    
+    # Get audio recording if available
+    audio_recording = None
+    if alert.inference_id:
+        db = SessionLocal()
+        try:
+            inference = db.query(InferenceResult).filter(
+                InferenceResult.inference_id == alert.inference_id
+            ).first()
+            
+            if inference and inference.audio_id:
+                audio = db.query(AudioSource).filter(
+                    AudioSource.audio_id == inference.audio_id
+                ).first()
+                
+                if audio:
+                    audio_recording = {
+                        "id": str(audio.audio_id),
+                        "file_path": audio.source_url,  # source_url is the path to the audio file
+                        "duration_seconds": int(audio.duration_seconds) if audio.duration_seconds else 30,
+                        "recorded_at": audio.captured_at.isoformat() if audio.captured_at else "",
+                    }
+        finally:
+            db.close()
+    
+    # Build advisory detail if available
+    advisory_detail = None
+    if advisory_obj:
+        advisory_detail = {
+            "id": str(advisory_obj.advisory_id),
+            "alert_id": str(alert.alert_id),
+            "type": advisory_obj.advisory_type,
+            "summary": advisory_obj.advisory_text or "",
+            "actions": [
+                {
+                    "id": str(action.action_id),
+                    "description": action.action_description,
+                    "priority": action.priority_level.capitalize(),  # Ensure proper case: "High", "Medium", "Low"
+                }
+                for action in advisory_obj.actions
+            ],
+        }
+    
     return MobileAlertDetailResponse(
         id=str(alert.alert_id),
         hive_id=str(alert.hive_id),
+        hive_name=hive_name,
         severity=alert.severity_level or "info",
         title=title,
         time=alert.alert_timestamp.isoformat() if alert.alert_timestamp else "",
+        created_at=alert.alert_timestamp.isoformat() if alert.alert_timestamp else "",
         details=details,
         acknowledged=alert.action_status == "acknowledged",
+        audio_recording=audio_recording,
+        advisory=advisory_detail,
     )
 
 
@@ -257,7 +315,10 @@ def get_alert_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Return the detail of a single alert (mobile alert detail screen)."""
+    """
+    Return the detail of a single alert (mobile alert detail screen).
+    Automatically marks the alert as acknowledged when viewed.
+    """
     hive_ids = [
         str(row.hive_id)
         for row in db.query(Hive.hive_id)
@@ -275,6 +336,12 @@ def get_alert_detail(
     )
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
+
+    # Automatically acknowledge when viewing details (if still pending)
+    if alert.action_status == "pending":
+        alert.action_status = "acknowledged"
+        db.commit()
+        db.refresh(alert)
 
     return _to_mobile_detail(alert)
 

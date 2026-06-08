@@ -94,7 +94,7 @@ class AudioUploadResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Advisory
+# Advisory (legacy - kept for backward compatibility with old inference results)
 # ---------------------------------------------------------------------------
 class AdvisoryActionResponse(BaseModel):
     action_id: str
@@ -107,6 +107,7 @@ class AdvisoryActionResponse(BaseModel):
 
 
 class AdvisoryResponse(BaseModel):
+    """Legacy advisory response - now returns inference-specific actions"""
     advisory_id: str
     advisory_type: str
     condition_label: Optional[str]
@@ -235,16 +236,16 @@ class AdminUserUpdate(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Advisory templates
+# Advisory templates (classification definitions only)
 # ---------------------------------------------------------------------------
 class AdvisoryTemplateResponse(BaseModel):
     template_id: int
     prediction_code: float
     hive_state: str
-    condition_label: str
-    advisory_text: str
     advisory_type: str
     severity: str
+    min_confidence_threshold: float
+    description: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -253,17 +254,85 @@ class AdvisoryTemplateResponse(BaseModel):
 class AdvisoryTemplateCreate(BaseModel):
     prediction_code: float
     hive_state: str
-    condition_label: str
-    advisory_text: str
     advisory_type: str = "Reactive"
     severity: str = "info"
+    min_confidence_threshold: float = 0.70
+    description: Optional[str] = None
 
 
 class AdvisoryTemplateUpdate(BaseModel):
-    condition_label: Optional[str] = None
-    advisory_text: Optional[str] = None
     advisory_type: Optional[str] = None
     severity: Optional[str] = None
+    min_confidence_threshold: Optional[float] = None
+    description: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Advisories (reusable action library)
+# ---------------------------------------------------------------------------
+class AdvisoryLibraryResponse(BaseModel):
+    advisory_id: str
+    template_id: int
+    action_title: str
+    action_description: str
+    priority_level: str
+    confidence_threshold_min: float
+    confidence_threshold_max: float
+    action_order: int
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+class AdvisoryLibraryCreate(BaseModel):
+    template_id: int
+    action_title: str
+    action_description: str
+    priority_level: str = "medium"
+    confidence_threshold_min: float = 0.70
+    confidence_threshold_max: float = 1.00
+    action_order: int = 1
+    is_active: bool = True
+
+
+class AdvisoryLibraryUpdate(BaseModel):
+    action_title: Optional[str] = None
+    action_description: Optional[str] = None
+    priority_level: Optional[str] = None
+    confidence_threshold_min: Optional[float] = None
+    confidence_threshold_max: Optional[float] = None
+    action_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+# ---------------------------------------------------------------------------
+# Advisory actions (inference-specific suggested actions)
+# ---------------------------------------------------------------------------
+class AdvisoryActionSuggestedResponse(BaseModel):
+    """Actions suggested for a specific inference"""
+    action_id: str
+    inference_id: str
+    hive_id: str
+    template_id: int
+    hive_state: str  # From template
+    confidence_score: float
+    action_title: str
+    action_description: str
+    priority_level: str
+    status: str
+    completed_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AdvisoryActionUpdateStatus(BaseModel):
+    """Update action status by farmer"""
+    status: str  # pending, in_progress, completed, skipped
+    notes: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -318,14 +387,39 @@ class MobileAlertResponse(BaseModel):
     summary: str
 
 
+class AudioRecordingResponse(BaseModel):
+    id: str
+    file_path: str
+    duration_seconds: int
+    recorded_at: str
+
+
+class AdvisoryActionItem(BaseModel):
+    id: str
+    description: str
+    priority: str  # "High", "Medium", "Low"
+
+
+class AdvisoryDetail(BaseModel):
+    id: str
+    alert_id: str
+    type: str  # "Preventive" or "Reactive"
+    summary: str
+    actions: list[AdvisoryActionItem] = []
+
+
 class MobileAlertDetailResponse(BaseModel):
     id: str
     hive_id: str
+    hive_name: Optional[str] = None
     severity: str
     title: str
     time: str
+    created_at: Optional[str] = None
     details: str
     acknowledged: bool
+    audio_recording: Optional[AudioRecordingResponse] = None
+    advisory: Optional[AdvisoryDetail] = None
 
 
 # ---------------------------------------------------------------------------

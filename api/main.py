@@ -44,6 +44,8 @@ from api.seed import seed_initial_data
 from api.routers import audio, auth, hives, inferences
 from api.routers.admin_views import router as admin_views_router
 from api.routers.advisory_templates import router as advisory_templates_router
+from api.routers.advisory_library import router as advisory_library_router
+from api.routers.advisory_actions import router as advisory_actions_router
 from api.routers.alerts import hive_alerts_router, mobile_alerts_router
 from api.routers.dashboard import router as dashboard_router
 from api.routers.logs import router as logs_router
@@ -202,6 +204,8 @@ app.include_router(mobile_alerts_router)
 app.include_router(dashboard_router)
 app.include_router(users_router)
 app.include_router(advisory_templates_router)
+app.include_router(advisory_library_router)
+app.include_router(advisory_actions_router)
 app.include_router(admin_views_router)
 app.include_router(logs_router)
 app.include_router(weather_router)

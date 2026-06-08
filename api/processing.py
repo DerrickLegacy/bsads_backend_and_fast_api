@@ -20,7 +20,7 @@ import traceback
 
 from sqlalchemy.orm import Session
 
-from api import advisory as advisory_module
+from api import advisory_new as advisory_module
 from api.database import SessionLocal
 from api.inference_engine import predict_from_bytes
 from api.models import AudioSource, Hive, InferenceResult
