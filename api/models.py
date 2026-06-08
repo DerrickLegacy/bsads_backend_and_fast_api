@@ -113,7 +113,6 @@ class EnvironmentalData(Base):
     temperature = Column(Numeric(5, 2), nullable=True)
     humidity = Column(Numeric(5, 2), nullable=True)
     recorded_at = Column(DateTime, default=datetime.utcnow)
-
     hive = relationship("Hive", back_populates="env_records")
 
 
