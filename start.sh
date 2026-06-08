@@ -38,6 +38,18 @@ if [ -n "$DB_URL" ]; then
     fi
     
     echo ""
+    echo "📝 Applying advisory system restructure migration..."
+    if psql "$DB_URL" -f migrations/restructure_advisory_system.sql 2>&1 | grep -v "^$"; then
+        echo "✓ Advisory system restructure migration completed"
+    fi
+    
+    echo ""
+    echo "📝 Seeding advisory action library..."
+    if psql "$DB_URL" -f migrations/seed_restructured_advisory_data.sql 2>&1 | grep -v "^$"; then
+        echo "✓ Advisory action library seeded"
+    fi
+    
+    echo ""
     echo "✓ All migrations applied successfully"
 else
     echo "⚠️  WARNING: No database URL found!"
