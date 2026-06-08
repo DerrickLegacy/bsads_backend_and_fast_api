@@ -98,19 +98,28 @@ async def lifespan(app: FastAPI):
     logger.info("🐝 BSADS API Starting Up...")
     logger.info("=" * 60)
     
-    Base.metadata.create_all(bind=engine)
+    # Check if database reset is enabled
+    if settings.reset_database:
+        from api.db_reset import reset_database
+        reset_database()
+    else:
+        # Normal startup - create tables if they don't exist
+        Base.metadata.create_all(bind=engine)
+        
+        # Seed initial data
+        db = SessionLocal()
+        try:
+            logger.info("Seeding initial data...")
+            seed_initial_data(db)
+            logger.info("✓ Initial data seeded successfully")
+        except Exception as e:
+            logger.error(f"✗ Failed to seed data: {e}")
+            logger.info("💡 Tip: Set RESET_DATABASE=true in .env to drop and recreate all tables")
+            raise
+        finally:
+            db.close()
+    
     (ROOT / settings.upload_dir).mkdir(parents=True, exist_ok=True)
-
-    db = SessionLocal()
-    try:
-        logger.info("Seeding initial data...")
-        seed_initial_data(db)
-        logger.info("✓ Initial data seeded successfully")
-    except Exception as e:
-        logger.error(f"✗ Failed to seed data: {e}")
-        raise
-    finally:
-        db.close()
 
     _scheduler.start()
 

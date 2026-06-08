@@ -190,18 +190,7 @@ def _to_mobile(alert: Alert, db: Session, index: int = 0) -> MobileAlertResponse
 
 
 def _to_mobile_detail(alert: Alert, db: Session) -> MobileAlertDetailResponse:
-    from api.models import AudioSource, InferenceResult
-    
-    advisory_obj = _safe_advisory(alert, db)
-    
-    # Get title and details from advisory or alert
-    if advisory_obj:
-        template = advisory_obj.template
-        title = template.hive_state if template else (alert.recommended_action or "Alert")
-        details = advisory_obj.action_description or (alert.recommended_action or "")
-    else:
-        title = alert.recommended_action or "Alert"
-        details = alert.recommended_action or ""
+    from api.models import AdvisoryAction, AdvisoryTemplate, AudioSource, InferenceResult
     
     # Get the hive name
     hive = db.query(Hive).filter(Hive.hive_id == alert.hive_id).first()
@@ -227,22 +216,48 @@ def _to_mobile_detail(alert: Alert, db: Session) -> MobileAlertDetailResponse:
                     "recorded_at": audio.captured_at.isoformat() if audio.captured_at else "",
                 }
     
-    # Build advisory detail if available
+    # Get all AdvisoryAction records for this inference (these are the inference-specific actions)
+    advisory_actions = []
+    template = None
+    if alert.inference_id:
+        advisory_actions = db.query(AdvisoryAction).filter(
+            AdvisoryAction.inference_id == alert.inference_id
+        ).order_by(
+            AdvisoryAction.priority_level.desc(),
+            AdvisoryAction.created_at
+        ).all()
+        
+        # Get the template from the first action if available
+        if advisory_actions:
+            template = db.query(AdvisoryTemplate).filter(
+                AdvisoryTemplate.template_id == advisory_actions[0].template_id
+            ).first()
+    
+    # Get title and details from template or alert
+    if template:
+        title = template.hive_state
+        details = template.description or alert.recommended_action or ""
+        advisory_type = template.advisory_type
+    else:
+        title = alert.recommended_action or "Alert"
+        details = alert.recommended_action or ""
+        advisory_type = "Reactive"
+    
+    # Build advisory detail with all the inference-specific actions
     advisory_detail = None
-    if advisory_obj:
-        template = advisory_obj.template
+    if advisory_actions:
         advisory_detail = {
-            "id": str(advisory_obj.advisory_id),
+            "id": str(advisory_actions[0].advisory_id) if advisory_actions else "",
             "alert_id": str(alert.alert_id),
-            "type": template.advisory_type if template else "Reactive",
-            "summary": advisory_obj.action_description or "",
+            "type": advisory_type,
+            "summary": details,
             "actions": [
                 {
                     "id": str(action.action_id),
                     "description": action.action_description,
                     "priority": action.priority_level.capitalize(),  # Ensure proper case: "High", "Medium", "Low"
                 }
-                for action in advisory_obj.actions
+                for action in advisory_actions
             ],
         }
     

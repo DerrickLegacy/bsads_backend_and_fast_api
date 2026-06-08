@@ -299,6 +299,16 @@ BAse URL (railway):`https://bsads-api-production.up.railway.app/docs`
 | GET    | `/hives/{hive_id}/alerts?only_pending=false`     | Yes           | All alerts including acknowledged |
 | PATCH  | `/hives/{hive_id}/alerts/{alert_id}/acknowledge` | Yes           | Mark alert as seen                |
 
+### Mobile Alerts (Top-level endpoints for mobile app)
+
+| Method | Endpoint                         | Auth required | Description                                            |
+| ------ | -------------------------------- | ------------- | ------------------------------------------------------ |
+| GET    | `/alerts`                        | Yes           | List all alerts for current user's hives               |
+| GET    | `/alerts?hive_id={hive_id}`      | Yes           | Filter alerts by specific hive                         |
+| GET    | `/alerts/{alert_id}`             | Yes           | Get alert detail with audio recording and actions ⭐   |
+| GET    | `/alerts/{alert_id}/advisory`    | Yes           | Get just the advisory actions for an alert             |
+| POST   | `/alerts/{alert_id}/acknowledge` | Yes           | Mark alert as acknowledged                             |
+
 ### Health Check
 
 | Method | Endpoint | Auth required | Description      |
@@ -544,11 +554,89 @@ curl http://localhost:8000/hives/1/inferences/latest \
 ### Step 6 — View and acknowledge an alert
 
 ```bash
-# View pending alerts
+# View all alerts for current user
+curl http://localhost:8000/alerts \
+  -H "Authorization: Bearer <your_token>"
+
+# View alerts for a specific hive
+curl http://localhost:8000/alerts?hive_id=1 \
+  -H "Authorization: Bearer <your_token>"
+
+# Get detailed information about a specific alert (includes audio file path)
+curl http://localhost:8000/alerts/<alert_id> \
+  -H "Authorization: Bearer <your_token>"
+```
+
+**Response with audio traceability:**
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "hive_id": "123e4567-e89b-12d3-a456-426614174000",
+  "hive_name": "Hive A - Apiary 1",
+  "severity": "critical",
+  "title": "Swarm Detected",
+  "time": "2026-06-09T10:30:00",
+  "created_at": "2026-06-09T10:30:00",
+  "details": "Active swarm event detected - immediate intervention required",
+  "acknowledged": false,
+  
+  "audio_recording": {
+    "id": "789e0123-e89b-12d3-a456-426614174111",
+    "file_path": "/path/to/farmer/hive/recordings/2026-06-09_10-30-00.wav",
+    "duration_seconds": 30,
+    "recorded_at": "2026-06-09T10:30:00"
+  },
+  
+  "advisory": {
+    "id": "advisory-uuid",
+    "alert_id": "550e8400-e29b-41d4-a716-446655440000",
+    "type": "Reactive",
+    "summary": "Active swarm event detected...",
+    "actions": [
+      {
+        "id": "action-1",
+        "description": "Inspect the hive immediately to confirm swarming activity",
+        "priority": "High"
+      },
+      {
+        "id": "action-2",
+        "description": "Prepare a swarm trap or empty hive box nearby to capture the swarm",
+        "priority": "High"
+      },
+      {
+        "id": "action-3",
+        "description": "Remove or destroy swarm cells to prevent secondary swarms",
+        "priority": "Medium"
+      }
+    ]
+  }
+}
+```
+
+**Audio Traceability:** The `audio_recording.file_path` field contains the exact location of the audio file that triggered this alert. This allows you to:
+- Play the audio in the mobile app
+- Download it for further analysis
+- Show the farmer which recording caused the alert
+
+```bash
+# Acknowledge an alert (farmer has acted on it)
+curl -X POST http://localhost:8000/alerts/<alert_id>/acknowledge \
+  -H "Authorization: Bearer <your_token>"
+```
+
+---
+
+### Step 7 — Legacy hive-scoped alert endpoints
+
+These endpoints are also available for backwards compatibility:
+
+```bash
+# View pending alerts for a specific hive
 curl http://localhost:8000/hives/1/alerts \
   -H "Authorization: Bearer <your_token>"
 
-# Acknowledge an alert (farmer has acted on it)
+# Acknowledge an alert (legacy endpoint)
 curl -X PATCH http://localhost:8000/hives/1/alerts/<alert_id>/acknowledge \
   -H "Authorization: Bearer <your_token>"
 ```
