@@ -1,4 +1,4 @@
-version: "3.9"
+# version: "3.9"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LOCAL DEVELOPMENT STACK
@@ -24,7 +24,7 @@ services:
       POSTGRES_USER:     bee_user
       POSTGRES_PASSWORD: bee_user
     ports:
-      - "5432:5432"          # expose so you can connect with DBeaver / psql locally
+      - "5433:5432"          # Docker PostgreSQL on port 5433 (system PostgreSQL is on 5432)
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -40,7 +40,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8001:8000"          # Docker API on port 8001 (system API is on 8000)
     environment:
       # Override DATABASE_URL so the app connects to the local db container
       DATABASE_URL: postgresql://bee_user:bee_user@db:5432/bee_db

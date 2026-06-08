@@ -18,114 +18,80 @@ from api.models import AdvisoryTemplate, User
 
 
 # ---------------------------------------------------------------------------
-# Advisory templates — the lookup table that drives alert text + severity
+# Advisory templates — classification definitions only (no actions)
 # ---------------------------------------------------------------------------
 _ADVISORY_TEMPLATES = [
     dict(
         prediction_code=0,
         hive_state="normal",
-        condition_label="Normal Colony Activity",
-        advisory_text=(
-            "The colony is operating normally. No intervention required. "
-            "Continue routine monitoring and maintain hive hygiene standards."
-        ),
         advisory_type="Preventive",
         severity="info",
+        min_confidence_threshold=0.60,
+        description="The colony is operating normally with healthy bee activity",
     ),
     dict(
         prediction_code=1,
         hive_state="pre_swarm",
-        condition_label="Pre-Swarm Activity Detected",
-        advisory_text=(
-            "Acoustic signatures indicate pre-swarm behaviour. Inspect the hive within "
-            "24 hours for queen cells and signs of congestion. Consider adding a super or "
-            "performing a nucleus split to relieve population pressure."
-        ),
-        advisory_type="Reactive",
-        severity="medium",
+        advisory_type="Preventive",
+        severity="high",
+        min_confidence_threshold=0.70,
+        description="Pre-swarm indicators detected - preventive action can avoid swarming",
     ),
     dict(
         prediction_code=2,
         hive_state="swarm",
-        condition_label="Active Swarm Event",
-        advisory_text=(
-            "Swarm activity is in progress or imminent. Dispatch a team immediately. "
-            "Locate the swarm cluster and capture it to retain the colony. Inspect the "
-            "parent hive for remaining queen cells and population stability."
-        ),
         advisory_type="Reactive",
         severity="critical",
+        min_confidence_threshold=0.80,
+        description="Active swarm event detected - immediate intervention required",
     ),
     dict(
         prediction_code=3,
         hive_state="abscondment",
-        condition_label="Colony Abscondment",
-        advisory_text=(
-            "The colony appears to have absconded. Inspect the hive immediately to confirm. "
-            "If absconded, identify the cause (pests, disease, poor conditions) before "
-            "re-hiving to prevent recurrence."
-        ),
         advisory_type="Reactive",
         severity="critical",
+        min_confidence_threshold=0.85,
+        description="Colony has likely absconded - hive may be empty",
     ),
     dict(
         prediction_code=4,
         hive_state="missing_queen",
-        condition_label="Queen Loss Detected",
-        advisory_text=(
-            "The queen bee appears to be absent. Inspect the hive for eggs and young "
-            "larvae within 48 hours. If queenless is confirmed, introduce a new mated "
-            "queen or allow the colony to raise an emergency queen from existing young larvae."
-        ),
         advisory_type="Reactive",
         severity="high",
+        min_confidence_threshold=0.75,
+        description="Queen absence suspected - colony at risk",
     ),
     dict(
         prediction_code=5,
         hive_state="queenbee_present",
-        condition_label="Queen Bee Confirmed Present",
-        advisory_text=(
-            "The queen bee is confirmed present and active. Colony is stable. "
-            "Monitor brood pattern at next scheduled inspection."
-        ),
         advisory_type="Preventive",
         severity="info",
+        min_confidence_threshold=0.65,
+        description="Healthy queen detected",
     ),
     dict(
         prediction_code=6,
         hive_state="pest_infested",
-        condition_label="Pest or Mite Infestation Detected",
-        advisory_text=(
-            "Acoustic patterns suggest pest pressure (mites, small hive beetle, or similar). "
-            "Perform a mite wash or sugar roll count. If Varroa count exceeds 3%, initiate "
-            "an approved treatment protocol immediately."
-        ),
         advisory_type="Reactive",
         severity="high",
+        min_confidence_threshold=0.70,
+        description="Pest activity detected in the hive",
     ),
     dict(
         prediction_code=7,
         hive_state="external_noise",
-        condition_label="External Noise in Recording",
-        advisory_text=(
-            "The audio recording contains significant non-bee noise (wind, rain, machinery). "
-            "Classification confidence is reduced. Re-record when ambient noise is lower, "
-            "or check sensor placement and housing."
-        ),
         advisory_type="Preventive",
         severity="low",
+        min_confidence_threshold=0.60,
+        description="External interference detected in recording",
     ),
     dict(
         prediction_code=8,
         hive_state="uncertain",
-        condition_label="Uncertain Classification",
-        advisory_text=(
-            "The model could not confidently classify this audio sample. This may be caused "
-            "by poor audio quality, unusual colony behaviour, or a state not well represented "
-            "in training data. Re-record and resubmit, or schedule a manual hive inspection."
-        ),
         advisory_type="Preventive",
         severity="low",
+        min_confidence_threshold=0.50,
+        description="Classification uncertain - manual inspection recommended",
     ),
 ]
 
