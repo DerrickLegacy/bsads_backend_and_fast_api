@@ -31,7 +31,7 @@ def get_inferences(
         db.query(InferenceResult)
         .options(
             joinedload(InferenceResult.alert),
-            joinedload(InferenceResult.advisory).joinedload(Advisory.actions),
+            joinedload(InferenceResult.advisory_actions),
         )
         .filter(InferenceResult.hive_id == hive_id)
         .order_by(InferenceResult.created_at.desc())
@@ -59,7 +59,7 @@ def get_latest_inference(
         db.query(InferenceResult)
         .options(
             joinedload(InferenceResult.alert),
-            joinedload(InferenceResult.advisory).joinedload(Advisory.actions),
+            joinedload(InferenceResult.advisory_actions),
         )
         .filter(InferenceResult.hive_id == hive_id)
         .order_by(InferenceResult.created_at.desc())

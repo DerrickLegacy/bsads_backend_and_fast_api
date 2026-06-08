@@ -320,7 +320,6 @@ def get_hive(
     # Latest pending alert for this hive
     latest_alert = (
         db.query(Alert)
-        .options(joinedload(Alert.advisory))
         .filter(Alert.hive_id == hive_id)
         .order_by(Alert.alert_timestamp.desc())
         .first()
@@ -345,17 +344,9 @@ def get_hive(
             last_analysis_time = latest_inference.analyzed_at.isoformat()
     
     if latest_alert:
-        advisory: Advisory | None = latest_alert.advisory
-        alert_title = (
-            advisory.condition_label
-            if advisory and advisory.condition_label
-            else latest_alert.recommended_action
-        )
-        alert_message = (
-            advisory.advisory_text
-            if advisory and advisory.advisory_text
-            else latest_alert.recommended_action
-        )
+        # Alert model doesn't have advisory relationship - use recommended_action directly
+        alert_title = latest_alert.recommended_action or "Alert"
+        alert_message = latest_alert.recommended_action or "No details available"
         acknowledged = latest_alert.action_status == "acknowledged"
 
     # Last 7 environmental readings for the metric chart

@@ -147,21 +147,38 @@ def acknowledge_hive_alert(
 mobile_alerts_router = APIRouter(prefix="/alerts", tags=["Mobile Alerts"])
 
 
-def _safe_advisory(alert: Alert) -> Advisory | None:
-    """Load linked advisory without joinedload (avoids broken join paths on some DBs)."""
+def _safe_advisory(alert: Alert, db: Session) -> Advisory | None:
+    """Load linked advisory through inference → advisory_actions path."""
     try:
-        return alert.advisory
+        # Alert → InferenceResult → AdvisoryActions → Advisory
+        from api.models import AdvisoryAction, InferenceResult
+        if not alert.inference_id:
+            return None
+        
+        # Get the first advisory action for this inference (highest priority)
+        action = (
+            db.query(AdvisoryAction)
+            .filter(AdvisoryAction.inference_id == alert.inference_id)
+            .order_by(AdvisoryAction.priority_level.desc(), AdvisoryAction.created_at.asc())
+            .first()
+        )
+        
+        if action and action.advisory:
+            return action.advisory
+        return None
     except Exception:
         return None
 
 
-def _to_mobile(alert: Alert, index: int = 0) -> MobileAlertResponse:
-    advisory = _safe_advisory(alert)
-    title = (
-        advisory.condition_label
-        if advisory and advisory.condition_label
-        else (alert.recommended_action or "Alert")
-    )
+def _to_mobile(alert: Alert, db: Session, index: int = 0) -> MobileAlertResponse:
+    advisory = _safe_advisory(alert, db)
+    
+    # Get title from advisory template or alert
+    if advisory and advisory.template:
+        title = advisory.template.hive_state
+    else:
+        title = alert.recommended_action or "Alert"
+    
     return MobileAlertResponse(
         id=str(alert.alert_id),
         hive_id=str(alert.hive_id),
@@ -172,62 +189,53 @@ def _to_mobile(alert: Alert, index: int = 0) -> MobileAlertResponse:
     )
 
 
-def _to_mobile_detail(alert: Alert) -> MobileAlertDetailResponse:
+def _to_mobile_detail(alert: Alert, db: Session) -> MobileAlertDetailResponse:
     from api.models import AudioSource, InferenceResult
-    from api.database import SessionLocal
     
-    advisory_obj = _safe_advisory(alert)
-    title = (
-        advisory_obj.condition_label
-        if advisory_obj and advisory_obj.condition_label
-        else (alert.recommended_action or "Alert")
-    )
-    details = (
-        advisory_obj.advisory_text
-        if advisory_obj and advisory_obj.advisory_text
-        else (alert.recommended_action or "")
-    )
+    advisory_obj = _safe_advisory(alert, db)
+    
+    # Get title and details from advisory or alert
+    if advisory_obj:
+        template = advisory_obj.template
+        title = template.hive_state if template else (alert.recommended_action or "Alert")
+        details = advisory_obj.action_description or (alert.recommended_action or "")
+    else:
+        title = alert.recommended_action or "Alert"
+        details = alert.recommended_action or ""
     
     # Get the hive name
-    db = SessionLocal()
-    try:
-        hive = db.query(Hive).filter(Hive.hive_id == alert.hive_id).first()
-        hive_name = hive.hive_name if hive else None
-    finally:
-        db.close()
+    hive = db.query(Hive).filter(Hive.hive_id == alert.hive_id).first()
+    hive_name = hive.hive_name if hive else None
     
     # Get audio recording if available
     audio_recording = None
     if alert.inference_id:
-        db = SessionLocal()
-        try:
-            inference = db.query(InferenceResult).filter(
-                InferenceResult.inference_id == alert.inference_id
+        inference = db.query(InferenceResult).filter(
+            InferenceResult.inference_id == alert.inference_id
+        ).first()
+        
+        if inference and inference.audio_id:
+            audio = db.query(AudioSource).filter(
+                AudioSource.audio_id == inference.audio_id
             ).first()
             
-            if inference and inference.audio_id:
-                audio = db.query(AudioSource).filter(
-                    AudioSource.audio_id == inference.audio_id
-                ).first()
-                
-                if audio:
-                    audio_recording = {
-                        "id": str(audio.audio_id),
-                        "file_path": audio.source_url,  # source_url is the path to the audio file
-                        "duration_seconds": int(audio.duration_seconds) if audio.duration_seconds else 30,
-                        "recorded_at": audio.captured_at.isoformat() if audio.captured_at else "",
-                    }
-        finally:
-            db.close()
+            if audio:
+                audio_recording = {
+                    "id": str(audio.audio_id),
+                    "file_path": audio.source_url,  # source_url is the path to the audio file
+                    "duration_seconds": int(audio.duration_seconds) if audio.duration_seconds else 30,
+                    "recorded_at": audio.captured_at.isoformat() if audio.captured_at else "",
+                }
     
     # Build advisory detail if available
     advisory_detail = None
     if advisory_obj:
+        template = advisory_obj.template
         advisory_detail = {
             "id": str(advisory_obj.advisory_id),
             "alert_id": str(alert.alert_id),
-            "type": advisory_obj.advisory_type,
-            "summary": advisory_obj.advisory_text or "",
+            "type": template.advisory_type if template else "Reactive",
+            "summary": advisory_obj.action_description or "",
             "actions": [
                 {
                     "id": str(action.action_id),
@@ -285,7 +293,7 @@ def get_all_alerts(
             q = q.filter(Alert.hive_id == hive_id)
 
     alerts = q.order_by(Alert.alert_timestamp.desc()).limit(100).all()
-    return [_to_mobile(a, i) for i, a in enumerate(alerts)]
+    return [_to_mobile(a, db, i) for i, a in enumerate(alerts)]
 
 
 @mobile_alerts_router.patch("/{alert_id}/notify", response_model=MobileAlertDetailResponse)
@@ -306,7 +314,7 @@ def notify_alert(
     db.commit()
     db.refresh(alert)
 
-    return _to_mobile_detail(alert)
+    return _to_mobile_detail(alert, db)
 
 
 @mobile_alerts_router.get("/{alert_id}", response_model=MobileAlertDetailResponse)
@@ -343,7 +351,7 @@ def get_alert_detail(
         db.commit()
         db.refresh(alert)
 
-    return _to_mobile_detail(alert)
+    return _to_mobile_detail(alert, db)
 
 
 @mobile_alerts_router.get("/{alert_id}/advisory", response_model=AdvisoryResponse)
@@ -382,11 +390,28 @@ def get_alert_advisory(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
-    advisory = _safe_advisory(alert)
+    advisory = _safe_advisory(alert, db)
     if not advisory:
         raise HTTPException(status_code=404, detail="No advisory linked to this alert")
 
-    return AdvisoryResponse.model_validate(advisory)
+    # Build response from Advisory and its template
+    template = advisory.template
+    return AdvisoryResponse(
+        advisory_id=str(advisory.advisory_id),
+        advisory_type=template.advisory_type if template else "Reactive",
+        condition_label=template.hive_state if template else None,
+        advisory_text=advisory.action_description,
+        severity=template.severity if template else "info",
+        actions=[
+            AdvisoryActionResponse(
+                action_id=str(action.action_id),
+                action_description=action.action_description,
+                priority_level=action.priority_level,
+                status=action.status
+            )
+            for action in advisory.actions
+        ]
+    )
 
 
 @mobile_alerts_router.post("/{alert_id}/acknowledge", response_model=MobileAlertDetailResponse)
@@ -418,4 +443,4 @@ def acknowledge_alert(
     db.commit()
     db.refresh(alert)
 
-    return _to_mobile_detail(alert)
+    return _to_mobile_detail(alert, db)
