@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # HuggingFace Gradio client timeout
     inference_timeout_seconds: int = 240
 
+    # Database reset on startup (DEVELOPMENT ONLY - deletes all data!)
+    reset_database: bool = False
+
     class Config:
         env_file = ".env"
         extra = "ignore"

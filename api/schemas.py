@@ -1,6 +1,7 @@
 from datetime import datetime, date
 from typing import Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator, Field
+import re
 
 
 # ---------------------------------------------------------------------------
@@ -10,12 +11,65 @@ class UserRegister(BaseModel):
     full_name: str
     email: EmailStr
     password: str
-    phone: Optional[str] = None
-    address: Optional[str] = None
+    phone: str
+    address: str
     role: str = "farmer"
     # Farmer's external server URL (e.g., https://abc123.ngrok-free.dev)
-    server_url: Optional[str] = None
-    api_key: Optional[str] = None     # API key for accessing farmer's server
+    server_url: str
+    api_key: str = Field(..., min_length=32, description="API key for accessing farmer's server (minimum 32 characters)")
+    
+    @field_validator('api_key')
+    @classmethod
+    def validate_api_key(cls, v: str) -> str:
+        """Validate API key format - must be UUID-like or at least 32 alphanumeric characters with hyphens"""
+        if not v or len(v.strip()) < 32:
+            raise ValueError('API key must be at least 32 characters long')
+        
+        # Check if it's a valid UUID format (with or without hyphens)
+        uuid_pattern = r'^[a-fA-F0-9]{8}-?[a-fA-F0-9]{4}-?[a-fA-F0-9]{4}-?[a-fA-F0-9]{4}-?[a-fA-F0-9]{12}$'
+        
+        # Remove whitespace
+        cleaned = v.strip()
+        
+        # Check if it matches UUID pattern
+        if re.match(uuid_pattern, cleaned):
+            return cleaned
+        
+        # If not UUID format, check if it's at least 32 alphanumeric/hyphen/underscore characters
+        if len(cleaned) >= 32 and re.match(r'^[a-zA-Z0-9_-]+$', cleaned):
+            return cleaned
+        
+        raise ValueError('API key must be a valid UUID format (e.g., f47ac10b-58cc-4372-a567-0e02b2c3d479) or at least 32 alphanumeric characters')
+    
+    @field_validator('server_url')
+    @classmethod
+    def validate_server_url(cls, v: str) -> str:
+        """Validate server URL format"""
+        if not v or len(v.strip()) < 10:
+            raise ValueError('Server URL is required')
+        
+        cleaned = v.strip()
+        
+        # Check if it starts with http:// or https://
+        if not (cleaned.startswith('http://') or cleaned.startswith('https://')):
+            raise ValueError('Server URL must start with http:// or https://')
+        
+        return cleaned
+    
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        """Validate phone number format"""
+        if not v or len(v.strip()) < 10:
+            raise ValueError('Phone number must be at least 10 characters')
+        
+        # Remove spaces and common separators for validation
+        cleaned = re.sub(r'[\s\-\(\)]', '', v)
+        
+        if not re.match(r'^\+?[0-9]{10,15}$', cleaned):
+            raise ValueError('Phone number must contain 10-15 digits (with optional + prefix)')
+        
+        return v.strip()
 
 
 class UserLogin(BaseModel):
@@ -385,6 +439,7 @@ class MobileAlertResponse(BaseModel):
     title: str
     date: str
     summary: str
+    alertStatus: str = "pending"  # "pending", "acknowledged", "sent"
 
 
 class AudioRecordingResponse(BaseModel):

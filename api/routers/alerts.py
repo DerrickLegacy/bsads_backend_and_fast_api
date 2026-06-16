@@ -171,13 +171,36 @@ def _safe_advisory(alert: Alert, db: Session) -> Advisory | None:
 
 
 def _to_mobile(alert: Alert, db: Session, index: int = 0) -> MobileAlertResponse:
-    advisory = _safe_advisory(alert, db)
+    from api.models import AdvisoryAction, AdvisoryTemplate, InferenceResult
     
-    # Get title from advisory template or alert
-    if advisory and advisory.template:
-        title = advisory.template.hive_state
-    else:
-        title = alert.recommended_action or "Alert"
+    # Get inference to find the hive state
+    title = "Alert"
+    if alert.inference_id:
+        inference = db.query(InferenceResult).filter(
+            InferenceResult.inference_id == alert.inference_id
+        ).first()
+        
+        if inference:
+            # Get template for better title
+            action = db.query(AdvisoryAction).filter(
+                AdvisoryAction.inference_id == alert.inference_id
+            ).first()
+            
+            if action:
+                template = db.query(AdvisoryTemplate).filter(
+                    AdvisoryTemplate.template_id == action.template_id
+                ).first()
+                
+                if template:
+                    # Format the hive state as a readable title
+                    title = template.hive_state.replace("_", " ").title()
+                else:
+                    title = inference.hive_state.replace("_", " ").title()
+            else:
+                title = inference.hive_state.replace("_", " ").title()
+    
+    # Use recommended_action as summary if available
+    summary = alert.recommended_action or "Tap to view details"
     
     return MobileAlertResponse(
         id=str(alert.alert_id),
@@ -185,23 +208,13 @@ def _to_mobile(alert: Alert, db: Session, index: int = 0) -> MobileAlertResponse
         severity=alert.severity_level or "info",
         title=title,
         date=alert.alert_timestamp.isoformat() if alert.alert_timestamp else "",
-        summary=alert.recommended_action or "",
+        summary=summary,
+        alertStatus=alert.action_status or "pending",
     )
 
 
 def _to_mobile_detail(alert: Alert, db: Session) -> MobileAlertDetailResponse:
-    from api.models import AudioSource, InferenceResult
-    
-    advisory_obj = _safe_advisory(alert, db)
-    
-    # Get title and details from advisory or alert
-    if advisory_obj:
-        template = advisory_obj.template
-        title = template.hive_state if template else (alert.recommended_action or "Alert")
-        details = advisory_obj.action_description or (alert.recommended_action or "")
-    else:
-        title = alert.recommended_action or "Alert"
-        details = alert.recommended_action or ""
+    from api.models import AdvisoryAction, AdvisoryTemplate, AudioSource, InferenceResult
     
     # Get the hive name
     hive = db.query(Hive).filter(Hive.hive_id == alert.hive_id).first()
@@ -220,29 +233,69 @@ def _to_mobile_detail(alert: Alert, db: Session) -> MobileAlertDetailResponse:
             ).first()
             
             if audio:
+                # Use the backend stream endpoint instead of direct farmer server URL
+                # This allows the mobile app to play audio without auth issues
+                from api.config import settings
+                stream_url = f"/audio/{audio.audio_id}/stream"
+                
                 audio_recording = {
                     "id": str(audio.audio_id),
-                    "file_path": audio.source_url,  # source_url is the path to the audio file
+                    "file_path": stream_url,  # Use backend stream URL
                     "duration_seconds": int(audio.duration_seconds) if audio.duration_seconds else 30,
                     "recorded_at": audio.captured_at.isoformat() if audio.captured_at else "",
                 }
     
-    # Build advisory detail if available
+    # Get all AdvisoryAction records for this inference (these are the inference-specific actions)
+    advisory_actions = []
+    template = None
+    if alert.inference_id:
+        # Order by priority: high → medium → low
+        # Use CASE to convert priority strings to numbers for proper ordering
+        from sqlalchemy import case
+        priority_order = case(
+            (AdvisoryAction.priority_level == "high", 1),
+            (AdvisoryAction.priority_level == "medium", 2),
+            (AdvisoryAction.priority_level == "low", 3),
+            else_=4
+        )
+        advisory_actions = db.query(AdvisoryAction).filter(
+            AdvisoryAction.inference_id == alert.inference_id
+        ).order_by(
+            priority_order,
+            AdvisoryAction.created_at
+        ).all()
+        
+        # Get the template from the first action if available
+        if advisory_actions:
+            template = db.query(AdvisoryTemplate).filter(
+                AdvisoryTemplate.template_id == advisory_actions[0].template_id
+            ).first()
+    
+    # Get title and details from template or alert
+    if template:
+        title = template.hive_state
+        details = template.description or alert.recommended_action or ""
+        advisory_type = template.advisory_type
+    else:
+        title = alert.recommended_action or "Alert"
+        details = alert.recommended_action or ""
+        advisory_type = "Reactive"
+    
+    # Build advisory detail with all the inference-specific actions
     advisory_detail = None
-    if advisory_obj:
-        template = advisory_obj.template
+    if advisory_actions:
         advisory_detail = {
-            "id": str(advisory_obj.advisory_id),
+            "id": str(advisory_actions[0].advisory_id) if advisory_actions else "",
             "alert_id": str(alert.alert_id),
-            "type": template.advisory_type if template else "Reactive",
-            "summary": advisory_obj.action_description or "",
+            "type": advisory_type,
+            "summary": details,
             "actions": [
                 {
                     "id": str(action.action_id),
                     "description": action.action_description,
                     "priority": action.priority_level.capitalize(),  # Ensure proper case: "High", "Medium", "Low"
                 }
-                for action in advisory_obj.actions
+                for action in advisory_actions
             ],
         }
     
@@ -268,9 +321,11 @@ def get_all_alerts(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Return alerts.
+    Return alerts for display in the mobile app.
     - Admin: all alerts system-wide (optionally filtered by ?hive_id=).
     - Farmer/mobile: only their own hives' alerts.
+    
+    Returns alerts ordered by newest first with proper notification data.
     """
     if current_user.role != "admin":
         hive_ids = [

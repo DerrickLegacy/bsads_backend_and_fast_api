@@ -234,6 +234,7 @@ class Alert(Base):
     recommended_action = Column(Text, nullable=True)
     action_status = Column(String(20), nullable=False, default="pending")
     alert_timestamp = Column(DateTime, default=datetime.utcnow)
+    viewed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow,
                         onupdate=datetime.utcnow)
