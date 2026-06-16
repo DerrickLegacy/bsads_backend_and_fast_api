@@ -129,11 +129,12 @@ the Space picks it up automatically.
 
 ### Option A — HTTP API polling (recommended, production use)
 
-The farmer provides their server URL and API key during registration or via profile update. 
-The API connects every 30 seconds, lists new audio files via HTTP, downloads them, and sends 
+The farmer provides their server URL and API key during registration or via profile update.
+The API connects every 30 seconds, lists new audio files via HTTP, downloads them, and sends
 them for inference automatically.
 
 **Benefits:**
+
 - Simple setup (no SSH keys)
 - Works through firewalls
 - Easy to revoke access
@@ -142,7 +143,8 @@ them for inference automatically.
 
 **Setup guide:** See [USER_REGISTRATION_GUIDE.md](USER_REGISTRATION_GUIDE.md) and [FARMER_API_KEY_SETUP.md](FARMER_API_KEY_SETUP.md)
 
-Configure via: 
+Configure via:
+
 - User registration: `POST /auth/register` with `server_url` and `api_key`
 - Profile update: `PUT /auth/me` with `server_url` and `api_key`
 - Per-hive override: `POST /hives/{hive_id}/data-source/configure`
@@ -244,9 +246,9 @@ bsads_backend_and_fast_api/
 
 ## Documentation
 
-| File                                                | Contents                                                                      |
-| --------------------------------------------------- | ----------------------------------------------------------------------------- |
-| [SETUP.md](SETUP.md)                                | Prerequisites, PostgreSQL setup, venv, .env config, first run                 |
-| [TESTING.md](TESTING.md)                            | Full 7-step inference pipeline test with SSH simulation and all curl commands |
-| [API.md](API.md)                                    | Deep technical docs: DB schema, advisory rules, endpoint reference            |
+| File                                               | Contents                                                                      |
+| -------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [SETUP.md](SETUP.md)                               | Prerequisites, PostgreSQL setup, venv, .env config, first run                 |
+| [TESTING.md](TESTING.md)                           | Full 7-step inference pipeline test with SSH simulation and all curl commands |
+| [API.md](API.md)                                   | Deep technical docs: DB schema, advisory rules, endpoint reference            |
 | [FARMER_API_KEY_SETUP.md](FARMER_API_KEY_SETUP.md) | How to connect to farmer's server using API keys (recommended method)         |

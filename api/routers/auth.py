@@ -67,9 +67,12 @@ def get_current_user(
 # ---------------------------------------------------------------------------
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 def register(body: UserRegister, db: Session = Depends(get_db)):
-    """Register a new farmer account with optional server URL and API key."""
+    """Register a new farmer account with server URL and API key."""
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
+    
+    if db.query(User).filter(User.phone == body.phone).first():
+        raise HTTPException(status_code=400, detail="Phone number already registered")
 
     user = User(
         full_name     = body.full_name,

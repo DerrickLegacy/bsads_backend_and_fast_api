@@ -171,13 +171,36 @@ def _safe_advisory(alert: Alert, db: Session) -> Advisory | None:
 
 
 def _to_mobile(alert: Alert, db: Session, index: int = 0) -> MobileAlertResponse:
-    advisory = _safe_advisory(alert, db)
+    from api.models import AdvisoryAction, AdvisoryTemplate, InferenceResult
     
-    # Get title from advisory template or alert
-    if advisory and advisory.template:
-        title = advisory.template.hive_state
-    else:
-        title = alert.recommended_action or "Alert"
+    # Get inference to find the hive state
+    title = "Alert"
+    if alert.inference_id:
+        inference = db.query(InferenceResult).filter(
+            InferenceResult.inference_id == alert.inference_id
+        ).first()
+        
+        if inference:
+            # Get template for better title
+            action = db.query(AdvisoryAction).filter(
+                AdvisoryAction.inference_id == alert.inference_id
+            ).first()
+            
+            if action:
+                template = db.query(AdvisoryTemplate).filter(
+                    AdvisoryTemplate.template_id == action.template_id
+                ).first()
+                
+                if template:
+                    # Format the hive state as a readable title
+                    title = template.hive_state.replace("_", " ").title()
+                else:
+                    title = inference.hive_state.replace("_", " ").title()
+            else:
+                title = inference.hive_state.replace("_", " ").title()
+    
+    # Use recommended_action as summary if available
+    summary = alert.recommended_action or "Tap to view details"
     
     return MobileAlertResponse(
         id=str(alert.alert_id),
@@ -185,7 +208,8 @@ def _to_mobile(alert: Alert, db: Session, index: int = 0) -> MobileAlertResponse
         severity=alert.severity_level or "info",
         title=title,
         date=alert.alert_timestamp.isoformat() if alert.alert_timestamp else "",
-        summary=alert.recommended_action or "",
+        summary=summary,
+        alertStatus=alert.action_status or "pending",
     )
 
 
@@ -209,9 +233,14 @@ def _to_mobile_detail(alert: Alert, db: Session) -> MobileAlertDetailResponse:
             ).first()
             
             if audio:
+                # Use the backend stream endpoint instead of direct farmer server URL
+                # This allows the mobile app to play audio without auth issues
+                from api.config import settings
+                stream_url = f"/audio/{audio.audio_id}/stream"
+                
                 audio_recording = {
                     "id": str(audio.audio_id),
-                    "file_path": audio.source_url,  # source_url is the path to the audio file
+                    "file_path": stream_url,  # Use backend stream URL
                     "duration_seconds": int(audio.duration_seconds) if audio.duration_seconds else 30,
                     "recorded_at": audio.captured_at.isoformat() if audio.captured_at else "",
                 }
@@ -220,10 +249,19 @@ def _to_mobile_detail(alert: Alert, db: Session) -> MobileAlertDetailResponse:
     advisory_actions = []
     template = None
     if alert.inference_id:
+        # Order by priority: high → medium → low
+        # Use CASE to convert priority strings to numbers for proper ordering
+        from sqlalchemy import case
+        priority_order = case(
+            (AdvisoryAction.priority_level == "high", 1),
+            (AdvisoryAction.priority_level == "medium", 2),
+            (AdvisoryAction.priority_level == "low", 3),
+            else_=4
+        )
         advisory_actions = db.query(AdvisoryAction).filter(
             AdvisoryAction.inference_id == alert.inference_id
         ).order_by(
-            AdvisoryAction.priority_level.desc(),
+            priority_order,
             AdvisoryAction.created_at
         ).all()
         
@@ -283,9 +321,11 @@ def get_all_alerts(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Return alerts.
+    Return alerts for display in the mobile app.
     - Admin: all alerts system-wide (optionally filtered by ?hive_id=).
     - Farmer/mobile: only their own hives' alerts.
+    
+    Returns alerts ordered by newest first with proper notification data.
     """
     if current_user.role != "admin":
         hive_ids = [

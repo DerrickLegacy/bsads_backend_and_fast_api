@@ -81,7 +81,7 @@ _FALLBACK_RULES: dict = {
         "severity_level":     "medium",
         "recommended_action": "Pest infestation indicators detected",
         "advisory_type":      "Reactive",
-        "condition_label":    "Pest Infestation",
+        "condition_label":    "Pest Infestation detected",
         "advisory_text":      "Pest activity detected in the hive. Treatment may be required.",
         "severity":           "high",
         "actions": [
@@ -125,32 +125,33 @@ def generate(
 
     # Populate advisory data preferring the database template
     advisory_type   = template.advisory_type   if template else rule["advisory_type"]
-    condition_label = template.condition_label if template else rule["condition_label"]
-    advisory_text   = template.advisory_text   if template else rule["advisory_text"]
+    condition_label = template.hive_state      if template else rule["condition_label"]
+    advisory_text   = template.description     if template else rule["advisory_text"]
     severity        = template.severity        if template else rule["severity"]
     template_id     = template.template_id     if template else None
 
     severity_level     = rule["severity_level"]     if rule else severity
     recommended_action = rule["recommended_action"] if rule else advisory_text
 
-    # --- Advisory ---
+    # --- Advisory (using template or creating new for this inference) ---
+    # Create an advisory record for the inference
     advisory = Advisory(
-        inference_id    = inference.inference_id,
-        hive_id         = hive.hive_id,
-        template_id     = template_id,
-        advisory_type   = advisory_type,
-        condition_label = condition_label,
-        advisory_text   = advisory_text,
-        severity        = severity,
+        template_id        = template_id,
+        action_title       = condition_label,
+        action_description = advisory_text,
+        priority_level     = severity_level,
+        confidence_threshold_min = inference.confidence_score,
+        confidence_threshold_max = 1.00,
+        action_order       = 1,
+        is_active          = True,
     )
     db.add(advisory)
     db.flush()  # get advisory.advisory_id before creating actions
 
-    # --- Alert (linked to advisory) ---
+    # --- Alert (linked to the hive and inference) ---
     alert = Alert(
         hive_id            = hive.hive_id,
         inference_id       = inference.inference_id,
-        advisory_id        = advisory.advisory_id,
         severity_level     = severity_level,
         recommended_action = recommended_action,
         action_status      = "pending",
@@ -158,10 +159,16 @@ def generate(
     db.add(alert)
 
     # --- Advisory Actions (checklist) from fallback rule ---
+    # Create multiple actionable items for this specific inference
     if rule and rule.get("actions"):
-        for description, priority in rule["actions"]:
+        for idx, (description, priority) in enumerate(rule["actions"], start=1):
             db.add(AdvisoryAction(
+                inference_id       = inference.inference_id,
+                hive_id            = hive.hive_id,
                 advisory_id        = advisory.advisory_id,
+                template_id        = template_id,
+                confidence_score   = inference.confidence_score,
+                action_title       = f"{condition_label} - Action {idx}",
                 action_description = description,
                 priority_level     = priority,
                 status             = "pending",

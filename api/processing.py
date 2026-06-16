@@ -91,6 +91,7 @@ def process_audio_file(audio_id: str, audio_bytes: bytes, hive_id: str) -> None:
         # --- Inference result ---
         inference = InferenceResult(
             hive_id              = hive_id,
+            audio_id             = audio_id,  # Link to the audio source
             hive_state           = hive_state,
             confidence_score     = result.confidence,
             inference_latency_ms = result.latency_ms,

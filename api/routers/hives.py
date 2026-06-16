@@ -35,13 +35,6 @@ def _safe_hive_folder_name(hive_name: str | None, fallback_hive_id: str) -> str:
     return candidate.replace("/", "_").replace("\\", "_")
 
 
-def _create_farmer_hive_folder(api_base_url: str, api_key: str, hive_name: str) -> None:
-    """Ask the farmer server to create the hive folder for this hive name."""
-    url = f"{api_base_url.rstrip('/')}/recordings/hives/{hive_name}"
-    response = requests.post(url, headers={"X-API-Key": api_key}, timeout=15)
-    response.raise_for_status()
-
-
 @router.post("", response_model=HiveCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_hive(
     body: HiveCreate,
@@ -52,8 +45,11 @@ def create_hive(
     Register a new hive for the logged-in farmer.
 
     If the user has server_url and api_key configured, automatically creates
-    an HTTP API data source for the hive. Otherwise, creates an inactive
-    placeholder that can be configured later.
+    an HTTP API data source for the hive and marks it as ACTIVE by default.
+    The poller will handle connection errors gracefully and log them.
+
+    If the user has no credentials, creates an inactive placeholder that must
+    be configured later via the /data-source/configure endpoint.
 
     Returns suggested_remote_folder — the path where the farmer should store
     recordings on their external server, organized by API key.
@@ -93,24 +89,32 @@ def create_hive(
         connection_test = test_connection(api_config)
 
         # Try to create the hive folder on the farmer's server
+        # NOTE: This is optional - the farmer's server may auto-create folders
+        # or the farmer may manually create them. We try but don't fail if it doesn't work.
         hive_folder = _safe_hive_folder_name(hive.hive_name, str(hive.hive_id))
-        try:
-            _create_farmer_hive_folder(
-                current_user.server_url,
-                current_user.api_key,
-                hive_folder,
-            )
+        
+        from api.http_connector import create_hive_folder as http_create_hive_folder
+        folder_result = http_create_hive_folder(api_config, hive_folder)
+        
+        if folder_result.get("ok"):
             folder_created = True
-        except requests.exceptions.RequestException as e:
-            # Log the error but don't fail hive creation if folder creation fails
-            # The folder can be created manually or on first upload
-            folder_creation_error = str(e)
+        else:
+            # This is expected if the farmer's server doesn't support folder creation endpoint
+            # The folder will be created when the farmer first uploads audio files
+            folder_creation_error = folder_result.get("error", "Folder auto-creation not supported")
             from api.models import SystemLog
+            import logging
+            logger = logging.getLogger("bsads")
+            logger.info(f"Hive folder creation skipped: {hive_folder} - {folder_creation_error}")
             db.add(SystemLog(
-                level="warning",
+                level="info",
                 event_type="http_api",
-                message=f"Failed to create hive folder on farmer server: {hive_folder}",
-                details={"error": str(e), "hive_id": str(hive.hive_id)},
+                message=f"Hive folder not auto-created: {hive_folder}",
+                details={
+                    "hive_id": str(hive.hive_id),
+                    "suggested_folder": hive_folder,
+                    "reason": folder_creation_error
+                },
                 hive_id=hive.hive_id,
                 user_id=current_user.user_id,
             ))
@@ -122,20 +126,19 @@ def create_hive(
             source_type="http_api",
             source_path=current_user.server_url,
             connection_config=api_config,
-            is_active=connection_test.get(
-                "ok", False
-            ),  # Only activate if connection succeeds
+            is_active=True,  # Always active - poller will handle connection errors gracefully
         )
         db.add(data_source)
         db.commit()
 
     else:
         # Create inactive placeholder — farmer must configure credentials later
+        # This remains inactive until credentials are provided
         data_source = FarmerDataSource(
             user_id=current_user.user_id,
             hive_id=hive.hive_id,
             source_type="http_api",
-            is_active=False,
+            is_active=False,  # Inactive until credentials are configured
         )
         db.add(data_source)
         db.commit()
@@ -534,3 +537,50 @@ def configure_data_source(
         api_base_url=body.api_base_url,
         connection_test=connection_test,
     )
+
+
+@router.post("/{hive_id}/data-source/activate")
+def activate_data_source(
+    hive_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Manually activate a data source without testing the connection.
+    
+    Use this when you know your server is configured correctly but the
+    connection test failed for temporary reasons (firewall, network issues, etc.)
+    """
+    hive = (
+        db.query(Hive)
+        .filter(
+            Hive.hive_id == hive_id,
+            Hive.owner_id == current_user.user_id,
+        )
+        .first()
+    )
+    if not hive:
+        raise HTTPException(status_code=404, detail="Hive not found")
+    
+    source = (
+        db.query(FarmerDataSource).filter(FarmerDataSource.hive_id == hive_id).first()
+    )
+    
+    if not source:
+        raise HTTPException(status_code=404, detail="Data source not found")
+    
+    if not source.connection_config:
+        raise HTTPException(
+            status_code=400,
+            detail="Data source has no connection configuration. Please configure it first."
+        )
+    
+    source.is_active = True
+    db.commit()
+    
+    return {
+        "detail": "Data source activated successfully",
+        "source_id": source.source_id,
+        "hive_id": hive_id,
+        "is_active": True
+    }

@@ -47,6 +47,7 @@ from api.routers.advisory_templates import router as advisory_templates_router
 from api.routers.advisory_library import router as advisory_library_router
 from api.routers.advisory_actions import router as advisory_actions_router
 from api.routers.alerts import hive_alerts_router, mobile_alerts_router
+from api.routers.audio_stream import router as audio_stream_router
 from api.routers.dashboard import router as dashboard_router
 from api.routers.logs import router as logs_router
 from api.routers.users import router as users_router
@@ -207,6 +208,7 @@ async def log_requests(request: Request, call_next):
 app.include_router(auth.router)
 app.include_router(hives.router)
 app.include_router(audio.router)
+app.include_router(audio_stream_router)
 app.include_router(inferences.router)
 app.include_router(hive_alerts_router)
 app.include_router(mobile_alerts_router)

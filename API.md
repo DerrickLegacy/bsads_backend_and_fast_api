@@ -467,7 +467,7 @@ curl -X POST http://localhost:8000/audio/upload \
 {
   "audio_id": "3f4a1b2c-...",
   "hive_id": 1,
-  "message": "File received. Inference is running in the background."
+  "message": "File receivegit ad. Inference is running in the background."
 }
 ```
 
