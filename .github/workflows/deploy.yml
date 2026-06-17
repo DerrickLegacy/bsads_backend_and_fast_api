@@ -61,6 +61,7 @@ jobs:
             docker run -d \
               --name ${{ env.CONTAINER_NAME }} \
               --restart unless-stopped \
+              -p ${{ env.SERVER_PORT }}:${{ env.SERVER_PORT }} \
               -v bsads-data:/var/lib/postgresql \
               -v bsads-uploads:/app/uploads \
               -e DATABASE_URL="postgresql://bee_user:bee_user@localhost:5432/bee_db" \

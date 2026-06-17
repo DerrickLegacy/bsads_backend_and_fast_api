@@ -2,7 +2,7 @@
 # PRODUCTION DOCKERFILE - PostgreSQL + FastAPI in single container
 # ══════════════════════════════════════════════════════════════════════════════
 # This image contains both the database and Fast API server for easy deployment.
-# Accessible at: http://196.43.168.57:8080
+# Accessible at: http://196.43.168.57:8085
 # ══════════════════════════════════════════════════════════════════════════════
 
 FROM python:3.11-slim
@@ -61,13 +61,13 @@ RUN PG_VERSION=$(ls /usr/lib/postgresql/ | head -n1) && \
 USER root
 
 # ── Expose Ports ──────────────────────────────────────────────────────────────
-# Port 8080 for the FastAPI application (accessible externally)
+# Port 8085 for the FastAPI application (accessible externally)
 # PostgreSQL runs internally on 5432 (not exposed)
-EXPOSE 8080
+EXPOSE 8085
 
 # ── Health Check ──────────────────────────────────────────────────────────────
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD curl -f http://localhost:8085/health || exit 1
 
 # ── Start Services ────────────────────────────────────────────────────────────
 # Supervisor manages both PostgreSQL and FastAPI
