@@ -20,7 +20,7 @@ from api.system_logger import exc_details, log_standalone
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac"}
 
 # Concurrency settings - tune based on your infrastructure
-MAX_DISCOVERY_WORKERS = 10  # Concurrent HTTP API calls for discovery
+MAX_DISCOVERY_WORKERS = 5   # Reduced from 10 to avoid overwhelming unreachable APIs
 MAX_INFERENCE_WORKERS = 5   # Concurrent inference API calls
 BATCH_SIZE = 50             # Process audio files in batches
 
@@ -97,8 +97,22 @@ def _scan_one_source_safe(source: FarmerDataSource) -> bool:
     """
     db: Session = SessionLocal()
     try:
+        # Check if source has recent failures - skip temporarily if it's repeatedly failing
+        if source.last_error_at:
+            # Skip sources that failed in the last 10 minutes to avoid wasting resources
+            time_since_error = datetime.utcnow() - source.last_error_at
+            if time_since_error < timedelta(minutes=10):
+                log_standalone("info", "poller",
+                               f"Skipping source that recently failed (will retry after 10 min cooldown)",
+                               hive_id=str(source.hive_id),
+                               details={"last_error": source.last_error_at.isoformat()})
+                return False
+        
         if source.source_type == "http_api":
             _scan_http_api(source, db)
+            # Clear error timestamp on success
+            source.last_error_at = None
+            db.commit()
             return True
         else:
             log_standalone("warning", "poller",
@@ -110,6 +124,10 @@ def _scan_one_source_safe(source: FarmerDataSource) -> bool:
                        f"❌ Failed to scan source for hive {source.hive_id}: {exc}",
                        hive_id=str(source.hive_id),
                        details=exc_details(exc))
+        
+        # Record error timestamp for circuit breaker
+        source.last_error_at = datetime.utcnow()
+        db.commit()
         return False
     finally:
         db.close()

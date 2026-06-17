@@ -259,6 +259,7 @@ class FarmerDataSource(Base):
     source_path = Column(Text, nullable=True)
     connection_config = Column(JSONB, nullable=True)
     last_scanned_at = Column(DateTime, nullable=True)
+    last_error_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
