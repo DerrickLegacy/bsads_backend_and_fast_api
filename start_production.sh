@@ -19,7 +19,7 @@ export database_url="$DATABASE_URL"
 
 echo ""
 echo "📊 Environment Check:"
-echo "  PORT: 8080"
+echo "  PORT: 8085"
 echo "  DATABASE: postgresql://bee_user:***@localhost:5432/bee_db"
 echo ""
 
@@ -66,8 +66,8 @@ echo "✓ All migrations applied successfully"
 
 echo ""
 echo "============================================================"
-echo "🚀 Starting Uvicorn Server on port ${PORT:-8080}..."
+echo "🚀 Starting Uvicorn Server on port ${PORT:-8085}..."
 echo "============================================================"
 echo ""
 
-exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8080} --log-level info
+exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8085} --log-level info
