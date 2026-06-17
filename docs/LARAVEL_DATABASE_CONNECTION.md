@@ -9,7 +9,7 @@ Your Laravel admin dashboard can connect directly to the PostgreSQL database.
 | Parameter | Value |
 |-----------|-------|
 | **Host** | `196.43.168.57` |
-| **Port** | `5432` |
+| **Port** | `5433` |
 | **Database** | `bee_db` |
 | **Username** | `bee_user` |
 | **Password** | `bee_user` |
@@ -23,7 +23,7 @@ Your Laravel admin dashboard can connect directly to the PostgreSQL database.
 ```env
 DB_CONNECTION=pgsql
 DB_HOST=196.43.168.57
-DB_PORT=5432
+DB_PORT=5433
 DB_DATABASE=bee_db
 DB_USERNAME=bee_user
 DB_PASSWORD=bee_user
@@ -38,7 +38,7 @@ Ensure PostgreSQL is configured:
     'pgsql' => [
         'driver' => 'pgsql',
         'host' => env('DB_HOST', '196.43.168.57'),
-        'port' => env('DB_PORT', '5432'),
+        'port' => env('DB_PORT', '5433'),
         'database' => env('DB_DATABASE', 'bee_db'),
         'username' => env('DB_USERNAME', 'bee_user'),
         'password' => env('DB_PASSWORD', 'bee_user'),
@@ -73,11 +73,11 @@ For production, you should:
 
 ## 🔥 Open Firewall Port (If Needed)
 
-If you can't connect, ensure port 5432 is open on the server:
+If you can't connect, ensure port 5433 is open on the server:
 
 ```bash
 ssh ademneadev@196.43.168.57
-sudo ufw allow 5432/tcp
+sudo ufw allow 5433/tcp
 sudo ufw status
 ```
 
@@ -87,10 +87,10 @@ sudo ufw status
 
 ```bash
 # Using psql
-psql postgresql://bee_user:bee_user@196.43.168.57:5432/bee_db
+psql postgresql://bee_user:bee_user@196.43.168.57:5433/bee_db
 
 # Or with separate parameters
-psql -h 196.43.168.57 -p 5432 -U bee_user -d bee_db
+psql -h 196.43.168.57 -p 5433 -U bee_user -d bee_db
 ```
 
 Password: `bee_user`
@@ -116,7 +116,7 @@ Your Laravel dashboard can access all tables:
 
 Full connection string:
 ```
-postgresql://bee_user:bee_user@196.43.168.57:5432/bee_db
+postgresql://bee_user:bee_user@196.43.168.57:5433/bee_db
 ```
 
 ---
@@ -130,14 +130,14 @@ postgresql://bee_user:bee_user@196.43.168.57:5432/bee_db
 ssh ademneadev@196.43.168.57 'docker ps | grep bsads'
 ```
 
-Look for: `-p 5432:5432`
+Look for: `-p 5433:5432`
 
 **2. Check firewall:**
 ```bash
-ssh ademneadev@196.43.168.57 'sudo ufw status | grep 5432'
+ssh ademneadev@196.43.168.57 'sudo ufw status | grep 5433'
 ```
 
-Should show: `5432/tcp ALLOW Anywhere`
+Should show: `5433/tcp ALLOW Anywhere`
 
 **3. Test from server:**
 ```bash
@@ -163,10 +163,10 @@ docker exec -it bsads-api-production psql -U bee_user -d bee_db -c "SELECT 1"
 
 Your Laravel admin dashboard connects directly to PostgreSQL at:
 
-**Connection URL**: `postgresql://bee_user:bee_user@196.43.168.57:5432/bee_db`
+**Connection URL**: `postgresql://bee_user:bee_user@196.43.168.57:5433/bee_db`
 
 **Exposed Ports**:
 - Port 8085: FastAPI (for mobile/web apps)
-- Port 5432: PostgreSQL (for Laravel admin only)
+- Port 5433: PostgreSQL (for Laravel admin only)
 
 This gives your Laravel dashboard full database access while mobile/web apps use the secure API!

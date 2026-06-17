@@ -62,7 +62,7 @@ jobs:
               --name ${{ env.CONTAINER_NAME }} \
               --restart unless-stopped \
               -p ${{ env.SERVER_PORT }}:8080 \
-              -p 5432:5432 \
+              -p 5433:5432 \
               -v bsads-data:/var/lib/postgresql \
               -v bsads-uploads:/app/uploads \
               -e SECRET_KEY="${{ secrets.SECRET_KEY }}" \
