@@ -61,6 +61,7 @@ jobs:
             docker run -d \
               --name ${{ env.CONTAINER_NAME }} \
               --restart unless-stopped \
+              --add-host=host.docker.internal:host-gateway \
               -p ${{ env.SERVER_PORT }}:${{ env.SERVER_PORT }} \
               -v bsads-data:/var/lib/postgresql \
               -v bsads-uploads:/app/uploads \
