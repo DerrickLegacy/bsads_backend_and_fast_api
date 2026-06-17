@@ -57,13 +57,14 @@ jobs:
             docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true
             docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true
             
-            echo "� Starting new container on port ${{ env.SERVER_PORT }}..."
+            echo "🚀 Starting new container on port ${{ env.SERVER_PORT }}..."
             docker run -d \
               --name ${{ env.CONTAINER_NAME }} \
               --restart unless-stopped \
               --network host \
               -v bsads-data:/var/lib/postgresql \
               -v bsads-uploads:/app/uploads \
+              -e DATABASE_URL="postgresql://bee_user:bee_user@localhost:5432/bee_db" \
               -e SECRET_KEY="${{ secrets.SECRET_KEY }}" \
               -e HF_SPACE_NAME="${{ secrets.HF_SPACE_NAME }}" \
               -e HF_TOKEN="${{ secrets.HF_TOKEN }}" \
