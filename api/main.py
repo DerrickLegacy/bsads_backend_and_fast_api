@@ -145,7 +145,6 @@ async def lifespan(app: FastAPI):
     _scheduler.shutdown(wait=False)
     logger.info("✓ Shutdown complete")
 
-
 app = FastAPI(
     title="Bee Swarming & Abscondment Detection API",
     description=(
