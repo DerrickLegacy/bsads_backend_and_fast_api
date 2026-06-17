@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
 from api.database import get_db
-from api.models import Advisory, AdvisoryAction, AdvisoryTemplate, Hive, InferenceResult, User
+from api.models import Advisory, AdvisoryAction, AdvisoryTemplate, FarmerDataSource, Hive, InferenceResult, User
 from api.routers.auth import get_current_user
 from api.schemas import AdvisoryResponse, AdvisoryActionResponse, AdminAdvisoryResponse, InferenceResponse, AlertResponse
 
@@ -178,3 +178,68 @@ def get_advisory(
         raise HTTPException(status_code=403, detail="Access denied")
 
     return advisory
+
+
+# ---------------------------------------------------------------------------
+# Data Source Diagnostics (Admin Only)
+# ---------------------------------------------------------------------------
+@router.get("/admin/data-sources/status")
+def get_data_sources_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Admin-only endpoint to diagnose data source connection issues.
+    
+    Returns all active data sources with their connection status,
+    recent errors, and configuration details.
+    """
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    sources = (
+        db.query(FarmerDataSource)
+        .join(Hive, FarmerDataSource.hive_id == Hive.hive_id)
+        .join(User, FarmerDataSource.user_id == User.user_id)
+        .filter(FarmerDataSource.is_active == True)
+        .all()
+    )
+    
+    result = []
+    for source in sources:
+        hive = db.query(Hive).filter(Hive.hive_id == source.hive_id).first()
+        user = db.query(User).filter(User.user_id == source.user_id).first()
+        
+        api_url = None
+        has_api_key = False
+        
+        if source.connection_config:
+            api_url = source.connection_config.get("api_base_url")
+            has_api_key = bool(source.connection_config.get("api_key"))
+        
+        # Check if this source has recent errors
+        has_recent_errors = False
+        if source.last_error_at:
+            from datetime import datetime, timedelta
+            time_since_error = datetime.utcnow() - source.last_error_at
+            has_recent_errors = time_since_error < timedelta(hours=1)
+        
+        result.append({
+            "source_id": str(source.source_id),
+            "hive_id": str(source.hive_id),
+            "hive_name": hive.hive_name if hive else None,
+            "farmer_email": user.email if user else None,
+            "source_type": source.source_type,
+            "api_url": api_url,
+            "has_api_key": has_api_key,
+            "is_active": source.is_active,
+            "last_scanned_at": source.last_scanned_at.isoformat() if source.last_scanned_at else None,
+            "last_error_at": source.last_error_at.isoformat() if source.last_error_at else None,
+            "has_recent_errors": has_recent_errors,
+            "status": "error" if has_recent_errors else ("configured" if api_url and has_api_key else "incomplete"),
+        })
+    
+    return {
+        "total_active_sources": len(sources),
+        "sources": result
+    }

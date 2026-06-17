@@ -56,6 +56,12 @@ if psql "$DATABASE_URL" -f migrations/seed_restructured_advisory_data.sql 2>&1 |
 fi
 
 echo ""
+echo "📝 Applying circuit breaker migration..."
+if psql "$DATABASE_URL" -f migrations/add_circuit_breaker_to_data_sources.sql 2>&1 | grep -v "^$"; then
+    echo "✓ Circuit breaker migration completed"
+fi
+
+echo ""
 echo "✓ All migrations applied successfully"
 
 echo ""
