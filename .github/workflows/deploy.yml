@@ -11,7 +11,7 @@ env:
   CONTAINER_NAME: bsads-api-production
   SERVER_HOST: 196.43.168.57
   SERVER_USER: ademneadev
-  SERVER_PORT: 8080
+  SERVER_PORT: 8085
 
 jobs:
   build-and-deploy:
@@ -57,7 +57,7 @@ jobs:
             docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true
             docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true
             
-            echo "🚀 Starting new container..."
+            echo "� Starting new container on port ${{ env.SERVER_PORT }}..."
             docker run -d \
               --name ${{ env.CONTAINER_NAME }} \
               --restart unless-stopped \
