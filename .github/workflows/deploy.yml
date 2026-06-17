@@ -67,6 +67,7 @@ jobs:
               -e SECRET_KEY="${{ secrets.SECRET_KEY }}" \
               -e HF_SPACE_NAME="${{ secrets.HF_SPACE_NAME }}" \
               -e HF_TOKEN="${{ secrets.HF_TOKEN }}" \
+              -e PORT=8085 \
               ${{ env.DOCKER_IMAGE }}:latest
             
             echo "⏳ Waiting for container to start..."

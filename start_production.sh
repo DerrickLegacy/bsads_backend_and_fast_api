@@ -66,8 +66,8 @@ echo "✓ All migrations applied successfully"
 
 echo ""
 echo "============================================================"
-echo "🚀 Starting Uvicorn Server on port 8080..."
+echo "🚀 Starting Uvicorn Server on port ${PORT:-8080}..."
 echo "============================================================"
 echo ""
 
-exec uvicorn api.main:app --host 0.0.0.0 --port 8080 --log-level info
+exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8080} --log-level info
