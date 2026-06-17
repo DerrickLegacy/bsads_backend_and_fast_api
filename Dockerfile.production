@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # PRODUCTION DOCKERFILE - PostgreSQL + FastAPI in single container
 # ══════════════════════════════════════════════════════════════════════════════
-# This image contains both the database and API server for easy deployment.
+# This image contains both the database and Fast API server for easy deployment.
 # Accessible at: http://196.43.168.57:8080
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -12,9 +12,9 @@ WORKDIR /app
 # ── Install System Dependencies ──────────────────────────────────────────────
 # PostgreSQL server, client tools, and Python build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # PostgreSQL database server
-    postgresql-14 \
-    postgresql-contrib-14 \
+    # PostgreSQL database server (latest version in Debian)
+    postgresql \
+    postgresql-contrib \
     # Python build tools
     gcc \
     libffi-dev \
@@ -31,10 +31,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY api/ ./api/
 COPY migrations/ ./migrations/
 COPY start_production.sh ./start_production.sh
+COPY start_postgres.sh ./start_postgres.sh
 COPY supervisord.conf ./supervisord.conf
 
 # Make scripts executable
-RUN chmod +x start_production.sh
+RUN chmod +x start_production.sh start_postgres.sh
 
 # Create necessary directories
 RUN mkdir -p uploads /var/log/supervisor
@@ -43,18 +44,17 @@ RUN mkdir -p uploads /var/log/supervisor
 # Set up PostgreSQL to run inside the container
 USER postgres
 
-# Initialize PostgreSQL database cluster
-RUN /usr/lib/postgresql/14/bin/initdb -D /var/lib/postgresql/14/main
-
-# Configure PostgreSQL to listen on all interfaces
-RUN echo "host all all 0.0.0.0/0 md5" >> /var/lib/postgresql/14/main/pg_hba.conf && \
-    echo "listen_addresses='*'" >> /var/lib/postgresql/14/main/postgresql.conf
-
-# Start PostgreSQL temporarily to create user and database
-RUN /usr/lib/postgresql/14/bin/pg_ctl -D /var/lib/postgresql/14/main start && \
+# Get PostgreSQL version dynamically and initialize database cluster
+RUN PG_VERSION=$(ls /usr/lib/postgresql/ | head -n1) && \
+    PG_BIN=/usr/lib/postgresql/$PG_VERSION/bin && \
+    PG_DATA=/var/lib/postgresql/$PG_VERSION/main && \
+    $PG_BIN/initdb -D $PG_DATA && \
+    echo "host all all 0.0.0.0/0 md5" >> $PG_DATA/pg_hba.conf && \
+    echo "listen_addresses='*'" >> $PG_DATA/postgresql.conf && \
+    $PG_BIN/pg_ctl -D $PG_DATA start && \
     psql --command "CREATE USER bee_user WITH SUPERUSER PASSWORD 'bee_user';" && \
     createdb -O bee_user bee_db && \
-    /usr/lib/postgresql/14/bin/pg_ctl -D /var/lib/postgresql/14/main stop
+    $PG_BIN/pg_ctl -D $PG_DATA stop
 
 # Switch back to root for supervisor
 USER root
