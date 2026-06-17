@@ -1,0 +1,73 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# PRODUCTION DOCKERFILE - PostgreSQL + FastAPI in single container
+# ══════════════════════════════════════════════════════════════════════════════
+# This image contains both the database and API server for easy deployment.
+# Accessible at: http://196.43.168.57:8080
+# ══════════════════════════════════════════════════════════════════════════════
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# ── Install System Dependencies ──────────────────────────────────────────────
+# PostgreSQL server, client tools, and Python build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # PostgreSQL database server
+    postgresql-14 \
+    postgresql-contrib-14 \
+    # Python build tools
+    gcc \
+    libffi-dev \
+    libpq-dev \
+    # Process management
+    supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Install Python Dependencies ──────────────────────────────────────────────
+COPY api/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ── Copy Application Code ─────────────────────────────────────────────────────
+COPY api/ ./api/
+COPY migrations/ ./migrations/
+COPY start_production.sh ./start_production.sh
+COPY supervisord.conf ./supervisord.conf
+
+# Make scripts executable
+RUN chmod +x start_production.sh
+
+# Create necessary directories
+RUN mkdir -p uploads /var/log/supervisor
+
+# ── Configure PostgreSQL ─────────────────────────────────────────────────────
+# Set up PostgreSQL to run inside the container
+USER postgres
+
+# Initialize PostgreSQL database cluster
+RUN /usr/lib/postgresql/14/bin/initdb -D /var/lib/postgresql/14/main
+
+# Configure PostgreSQL to listen on all interfaces
+RUN echo "host all all 0.0.0.0/0 md5" >> /var/lib/postgresql/14/main/pg_hba.conf && \
+    echo "listen_addresses='*'" >> /var/lib/postgresql/14/main/postgresql.conf
+
+# Start PostgreSQL temporarily to create user and database
+RUN /usr/lib/postgresql/14/bin/pg_ctl -D /var/lib/postgresql/14/main start && \
+    psql --command "CREATE USER bee_user WITH SUPERUSER PASSWORD 'bee_user';" && \
+    createdb -O bee_user bee_db && \
+    /usr/lib/postgresql/14/bin/pg_ctl -D /var/lib/postgresql/14/main stop
+
+# Switch back to root for supervisor
+USER root
+
+# ── Expose Ports ──────────────────────────────────────────────────────────────
+# Port 8080 for the FastAPI application (accessible externally)
+# PostgreSQL runs internally on 5432 (not exposed)
+EXPOSE 8080
+
+# ── Health Check ──────────────────────────────────────────────────────────────
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# ── Start Services ────────────────────────────────────────────────────────────
+# Supervisor manages both PostgreSQL and FastAPI
+CMD ["/usr/bin/supervisord", "-c", "/app/supervisord.conf"]
