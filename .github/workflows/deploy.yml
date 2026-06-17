@@ -63,6 +63,7 @@ jobs:
               --restart unless-stopped \
               --add-host=host.docker.internal:host-gateway \
               -p ${{ env.SERVER_PORT }}:${{ env.SERVER_PORT }} \
+              -p 5433:5432 \
               -v bsads-data:/var/lib/postgresql \
               -v bsads-uploads:/app/uploads \
               -e DATABASE_URL="postgresql://bee_user:bee_user@localhost:5432/bee_db" \
