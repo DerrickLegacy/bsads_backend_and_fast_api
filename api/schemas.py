@@ -82,6 +82,8 @@ class UserResponse(BaseModel):
     full_name: str
     email: str
     role: str
+    phone: str | None = None
+    address: str | None = None
     server_url: Optional[str] = None
     api_key: Optional[str] = None
     created_at: datetime
