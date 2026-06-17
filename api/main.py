@@ -155,6 +155,7 @@ app = FastAPI(
     ),
     version="1.1.0",
     lifespan=lifespan,
+    root_path="/bsads",  # Add base path prefix
     # Disable default docs so we can serve them with reliable CDN fallbacks
     docs_url=None,
     redoc_url=None,
