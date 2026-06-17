@@ -8,6 +8,24 @@ Interactive API docs:
     http://localhost:8000/docs
 """
 
+from api.routers.weather import router as weather_router
+from api.routers.users import router as users_router
+from api.routers.logs import router as logs_router
+from api.routers.dashboard import router as dashboard_router
+from api.routers.audio_stream import router as audio_stream_router
+from api.routers.alerts import hive_alerts_router, mobile_alerts_router
+from api.routers.advisory_actions import router as advisory_actions_router
+from api.routers.advisory_library import router as advisory_library_router
+from api.routers.advisory_templates import router as advisory_templates_router
+from api.routers.admin_views import router as admin_views_router
+from api.routers import audio, auth, hives, inferences
+from api.seed import seed_initial_data
+from api.poller_concurrent import (
+    process_pending_sources_concurrent as process_pending_sources,
+    scan_all_sources_concurrent as scan_all_sources,
+    recover_stuck_records,
+)
+from api.database import Base, SessionLocal, engine
 import logging
 import sys
 import traceback
@@ -34,24 +52,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("bsads")
-from api.database import Base, SessionLocal, engine
-from api.poller_concurrent import (
-    process_pending_sources_concurrent as process_pending_sources,
-    scan_all_sources_concurrent as scan_all_sources,
-    recover_stuck_records,
-)
-from api.seed import seed_initial_data
-from api.routers import audio, auth, hives, inferences
-from api.routers.admin_views import router as admin_views_router
-from api.routers.advisory_templates import router as advisory_templates_router
-from api.routers.advisory_library import router as advisory_library_router
-from api.routers.advisory_actions import router as advisory_actions_router
-from api.routers.alerts import hive_alerts_router, mobile_alerts_router
-from api.routers.audio_stream import router as audio_stream_router
-from api.routers.dashboard import router as dashboard_router
-from api.routers.logs import router as logs_router
-from api.routers.users import router as users_router
-from api.routers.weather import router as weather_router
 
 # ---------------------------------------------------------------------------
 # Background scheduler — scans farmer data source folders concurrently
@@ -98,7 +98,7 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     logger.info("🐝 BSADS API Starting Up...")
     logger.info("=" * 60)
-    
+
     # Check if database reset is enabled
     if settings.reset_database:
         from api.db_reset import reset_database
@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
     else:
         # Normal startup - create tables if they don't exist
         Base.metadata.create_all(bind=engine)
-        
+
         # Seed initial data
         db = SessionLocal()
         try:
@@ -115,11 +115,12 @@ async def lifespan(app: FastAPI):
             logger.info("✓ Initial data seeded successfully")
         except Exception as e:
             logger.error(f"✗ Failed to seed data: {e}")
-            logger.info("💡 Tip: Set RESET_DATABASE=true in .env to drop and recreate all tables")
+            logger.info(
+                "💡 Tip: Set RESET_DATABASE=true in .env to drop and recreate all tables")
             raise
         finally:
             db.close()
-    
+
     (ROOT / settings.upload_dir).mkdir(parents=True, exist_ok=True)
 
     _scheduler.start()
@@ -127,9 +128,12 @@ async def lifespan(app: FastAPI):
     logger.info("✓ Database tables ready")
     logger.info("✓ Upload directory ready")
     logger.info(f"✓ HuggingFace Space: {settings.hf_space_name}")
-    logger.info(f"✓ Discovery poller started (CONCURRENT) — scanning every {settings.poll_interval_seconds}s")
-    logger.info(f"✓ Inference poller started (CONCURRENT + BATCHED) — processing every {settings.poll_interval_seconds}s")
-    logger.info(f"✓ Recovery job started — checking for stuck records every {settings.recovery_interval_minutes} minutes")
+    logger.info(
+        f"✓ Discovery poller started (CONCURRENT) — scanning every {settings.poll_interval_seconds}s")
+    logger.info(
+        f"✓ Inference poller started (CONCURRENT + BATCHED) — processing every {settings.poll_interval_seconds}s")
+    logger.info(
+        f"✓ Recovery job started — checking for stuck records every {settings.recovery_interval_minutes} minutes")
     logger.info("=" * 60)
     logger.info("🚀 BSADS API Ready!")
     logger.info("=" * 60)
@@ -178,14 +182,16 @@ async def integrity_error_handler(_request: Request, exc: IntegrityError):
         msg = "Phone number already registered"
     else:
         msg = "A record with these details already exists"
-    logger.warning(f"IntegrityError on {_request.method} {_request.url.path}: {detail}")
+    logger.warning(
+        f"IntegrityError on {_request.method} {_request.url.path}: {detail}")
     return JSONResponse(status_code=400, content={"detail": msg})
 
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(_request: Request, exc: Exception):
     """Log full trace server-side; return message in JSON for debugging."""
-    logger.exception(f"Unhandled error on {_request.method} {_request.url.path}")
+    logger.exception(
+        f"Unhandled error on {_request.method} {_request.url.path}")
     return JSONResponse(
         status_code=500,
         content={
@@ -201,7 +207,8 @@ async def unhandled_exception_handler(_request: Request, exc: Exception):
 async def log_requests(request: Request, call_next):
     logger.info(f"→ {request.method} {request.url.path}")
     response = await call_next(request)
-    logger.info(f"← {request.method} {request.url.path} - {response.status_code}")
+    logger.info(
+        f"← {request.method} {request.url.path} - {response.status_code}")
     return response
 
 

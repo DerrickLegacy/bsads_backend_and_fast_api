@@ -1,6 +1,3 @@
-# Use this for production builds
-# Copy from .dockerignore.production or include relevant patterns
-
 # Git
 .git
 .gitignore
@@ -17,12 +14,12 @@ venv/
 env/
 ENV/
 
-# Environment files
+# Environment files (copied separately)
 .env
 .env.*
 !.env.example
 
-# Documentation (except API.md)
+# Documentation
 *.md
 !API.md
 
@@ -55,16 +52,3 @@ build/
 # Misc
 .DS_Store
 Thumbs.db
-
-# Deployment files (not needed in image)
-setup_server.sh
-deploy.sh
-test_deployment.sh
-Dockerfile.production
-supervisord.conf
-start_production.sh
-.dockerignore.production
-SERVER_DEPLOYMENT_GUIDE.md
-DEPLOYMENT_README.md
-DEPLOYMENT_SUMMARY.md
-QUICK_DEPLOY.md
