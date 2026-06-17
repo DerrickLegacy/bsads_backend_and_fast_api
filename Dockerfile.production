@@ -48,6 +48,7 @@ USER postgres
 RUN PG_VERSION=$(ls /usr/lib/postgresql/ | head -n1) && \
     PG_BIN=/usr/lib/postgresql/$PG_VERSION/bin && \
     PG_DATA=/var/lib/postgresql/$PG_VERSION/main && \
+    rm -rf $PG_DATA && \
     $PG_BIN/initdb -D $PG_DATA && \
     echo "host all all 0.0.0.0/0 md5" >> $PG_DATA/pg_hba.conf && \
     echo "listen_addresses='*'" >> $PG_DATA/postgresql.conf && \
