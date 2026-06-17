@@ -1,0 +1,29 @@
+Fix Docker networking and port mapping for production deployment
+
+This commit resolves two critical deployment issues:
+
+1. Port Mapping Issue:
+   - Added -p 8085:8085 port mapping to expose API externally
+   - Updated all config files to use port 8085 consistently
+   - Fixed healthcheck and EXPOSE directives in Dockerfile
+
+2. Docker Networking Issue (Container-to-Host Communication):
+   - Added --add-host=host.docker.internal:host-gateway to docker run
+   - Implemented automatic URL translation in http_connector.py
+   - Translates 196.43.168.57 → host.docker.internal when inside Docker
+   - Allows API container to communicate with simulation server on same host
+
+Key Changes:
+- api/http_connector.py: Added _translate_localhost_url() function
+- .github/workflows/deploy.yml: Added --add-host and -p flags
+- Dockerfile.production: Changed EXPOSE to 8085
+- .env.production: Changed PORT to 8085
+- start_production.sh: Updated default port to 8085
+
+Testing:
+- API accessible at http://196.43.168.57:8085
+- Container can reach host services via host.docker.internal
+- Folder creation on simulation server works correctly
+- No database changes required (automatic URL translation)
+
+Fixes: Connection timeout errors when creating hives
