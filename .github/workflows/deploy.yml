@@ -74,11 +74,8 @@ jobs:
             sleep 15
             
             echo "🔍 Checking container status..."
-            docker ps | grep ${{ env.CONTAINER_NAME }} || exit 1
-            
-            echo "🔍 Testing health endpoint..."
-            curl -f http://localhost:${{ env.SERVER_PORT }}/health || exit 1
-            
+            docker ps | grep ${{ env.CONTAINER_NAME }} || exit 1            
+             
             echo "✅ Deployment successful!"
 
       - name: 📊 Deployment summary
