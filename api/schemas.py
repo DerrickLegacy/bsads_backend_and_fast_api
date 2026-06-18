@@ -86,6 +86,7 @@ class UserResponse(BaseModel):
     address: str | None = None
     server_url: Optional[str] = None
     api_key: Optional[str] = None
+    profile_photo_url: str | None = None
     created_at: datetime
 
     class Config:
