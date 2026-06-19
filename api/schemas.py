@@ -524,3 +524,25 @@ class SystemLogResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ---------------------------------------------------------------------------
+# Push notifications
+# ---------------------------------------------------------------------------
+class PushNotificationDeviceRegister(BaseModel):
+    token: str
+    device_id: str
+    platform: str
+
+
+class PushNotificationDeviceResponse(BaseModel):
+    id: int
+    user_id: str
+    token: str
+    device_id: str
+    platform: str
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

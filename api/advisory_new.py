@@ -6,20 +6,32 @@ When the model classifies a hive in a concerning state, this module:
   2. Queries advisories table for actions matching the confidence score
   3. Creates AdvisoryAction records for the specific inference
   4. Creates an Alert linked to the inference
+  5. Sends push notifications via Expo Push API
 
 States that do NOT trigger alerts (no advisory needed):
   normal | queenbee_present | external_noise | uncertain
 """
 
+import asyncio
+import threading
 from sqlalchemy.orm import Session
 from typing import List
 
 from api.models import (
     AdvisoryTemplate, Alert, Advisory, AdvisoryAction, Hive, InferenceResult
 )
+from api.push_notifications import send_alert_notifications
 
 # States that never generate alerts/advisories
 _SILENT_STATES = {"normal", "queenbee_present", "external_noise", "uncertain"}
+
+
+def _run_async_in_thread(coro, db):
+    """Run an async coroutine in a separate thread to avoid blocking."""
+    def thread_target():
+        asyncio.run(coro)
+    thread = threading.Thread(target=thread_target, daemon=True)
+    thread.start()
 
 
 def generate(
@@ -93,6 +105,9 @@ def generate(
             status="pending",
         )
         db.add(advisory_action)
+
+    # --- Send push notifications ---
+    _run_async_in_thread(send_alert_notifications(alert, db), db)
 
 
 def _build_summary(actions: List[Advisory]) -> str:

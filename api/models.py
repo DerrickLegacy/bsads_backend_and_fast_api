@@ -293,6 +293,24 @@ class SystemLog(Base):
 # ---------------------------------------------------------------------------
 # SystemSettings  (app-wide key-value configuration store)
 # ---------------------------------------------------------------------------
+class PushNotificationDevice(Base):
+    __tablename__ = "push_notification_devices"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(UUID(as_uuid=False), ForeignKey(
+        "users.user_id", ondelete="CASCADE"
+    ), nullable=False, index=True)
+    token = Column(String(500), nullable=False)
+    device_id = Column(String(255), nullable=False)
+    platform = Column(String(50), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow,
+                        onupdate=datetime.utcnow)
+
+    user = relationship("User", backref="push_devices")
+
+
 class SystemSettings(Base):
     __tablename__ = "system_settings"
 
