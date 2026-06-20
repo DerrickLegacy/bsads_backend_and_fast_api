@@ -90,8 +90,11 @@ class UserResponse(BaseModel):
     full_name: str
     email: str
     role: str
+    phone: str | None = None
+    address: str | None = None
     server_url: Optional[str] = None
     api_key: Optional[str] = None
+    profile_photo_url: str | None = None
     created_at: datetime
 
     class Config:
@@ -578,6 +581,28 @@ class AssignFarmerTokenResponse(BaseModel):
     server_url: str
     api_key: str
     assigned_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---------------------------------------------------------------------------
+# Push notifications
+# ---------------------------------------------------------------------------
+class PushNotificationDeviceRegister(BaseModel):
+    token: str
+    device_id: str
+    platform: str
+
+
+class PushNotificationDeviceResponse(BaseModel):
+    id: int
+    user_id: str
+    token: str
+    device_id: str
+    platform: str
+    is_active: bool
+    created_at: datetime
 
     class Config:
         from_attributes = True

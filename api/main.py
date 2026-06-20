@@ -19,6 +19,7 @@ from api.routers.advisory_library import router as advisory_library_router
 from api.routers.advisory_templates import router as advisory_templates_router
 from api.routers.admin_views import router as admin_views_router
 from api.routers.admin_keys import router as admin_keys_router
+from api.routers.notifications import router as notifications_router
 from api.routers import audio, auth, hives, inferences
 from api.seed import seed_initial_data
 from api.poller_concurrent import (
@@ -229,6 +230,7 @@ app.include_router(admin_views_router)
 app.include_router(admin_keys_router)
 app.include_router(logs_router)
 app.include_router(weather_router)
+app.include_router(notifications_router)
 
 
 @app.get("/health", tags=["Health"])

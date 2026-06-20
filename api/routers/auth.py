@@ -123,6 +123,7 @@ class ProfileUpdate(BaseModel):
     address: Optional[str] = None
     server_url: Optional[str] = None
     api_key: Optional[str] = None
+    profile_photo_url: Optional[str] = None
 
 
 class PasswordChange(BaseModel):
