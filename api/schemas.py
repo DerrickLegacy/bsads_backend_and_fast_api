@@ -14,15 +14,19 @@ class UserRegister(BaseModel):
     phone: str
     address: str
     role: str = "farmer"
-    # Farmer's external server URL (e.g., https://abc123.ngrok-free.dev)
-    server_url: str
-    api_key: str = Field(..., min_length=32, description="API key for accessing farmer's server (minimum 32 characters)")
+    # Optional: Admin can assign these after registration
+    server_url: Optional[str] = None
+    api_key: Optional[str] = None
     
     @field_validator('api_key')
     @classmethod
-    def validate_api_key(cls, v: str) -> str:
+    def validate_api_key(cls, v: Optional[str]) -> Optional[str]:
         """Validate API key format - must be UUID-like or at least 32 alphanumeric characters with hyphens"""
-        if not v or len(v.strip()) < 32:
+        # Allow None/empty for admin assignment flow
+        if not v or v == "string":  # Also skip default "string" placeholder
+            return None
+            
+        if len(v.strip()) < 32:
             raise ValueError('API key must be at least 32 characters long')
         
         # Check if it's a valid UUID format (with or without hyphens)
@@ -43,10 +47,14 @@ class UserRegister(BaseModel):
     
     @field_validator('server_url')
     @classmethod
-    def validate_server_url(cls, v: str) -> str:
+    def validate_server_url(cls, v: Optional[str]) -> Optional[str]:
         """Validate server URL format"""
-        if not v or len(v.strip()) < 10:
-            raise ValueError('Server URL is required')
+        # Allow None/empty for admin assignment flow
+        if not v or v == "string":  # Also skip default "string" placeholder
+            return None
+            
+        if len(v.strip()) < 10:
+            raise ValueError('Server URL must be a valid URL')
         
         cleaned = v.strip()
         
@@ -521,6 +529,58 @@ class SystemLogResponse(BaseModel):
     user_id:    Optional[str] = None
     audio_id:   Optional[str] = None
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---------------------------------------------------------------------------
+# Admin Keys (for external data source servers)
+# ---------------------------------------------------------------------------
+class AdminKeyResponse(BaseModel):
+    admin_key_id: str
+    server_name: str
+    server_url: Optional[str] = None
+    admin_key: str
+    description: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AdminKeyCreate(BaseModel):
+    server_name: str
+    server_url: Optional[str] = None
+    admin_key: str
+    description: Optional[str] = None
+    is_active: bool = True
+
+
+class AdminKeyUpdate(BaseModel):
+    server_name: Optional[str] = None
+    server_url: Optional[str] = None
+    admin_key: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+# ---------------------------------------------------------------------------
+# Admin — Assign API tokens to farmers
+# ---------------------------------------------------------------------------
+class AssignFarmerTokenRequest(BaseModel):
+    admin_key: str  # The admin key to use for this server
+    server_url: str  # The server URL to call
+
+
+class AssignFarmerTokenResponse(BaseModel):
+    user_id: str
+    full_name: str
+    email: str
+    server_url: str
+    api_key: str
+    assigned_at: datetime
 
     class Config:
         from_attributes = True

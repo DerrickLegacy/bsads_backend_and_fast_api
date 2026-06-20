@@ -36,8 +36,10 @@ class User(Base):
     device_token_updated_at = Column(DateTime, nullable=True)
     # Farmer's external data source server credentials (HTTP API)
     # e.g., https://abc123.ngrok-free.dev
+    # NULLABLE: Admin assigns these after user registration
     server_url = Column(String(255), nullable=True)
     # e.g., f47ac10b-58cc-4372-a567-0e02b2c3d479
+    # NULLABLE: Admin assigns these after user registration
     api_key = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow,
@@ -320,3 +322,24 @@ class SystemSettings(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow,
                         onupdate=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# AdminKeys  (stores admin keys for external data source servers)
+# ---------------------------------------------------------------------------
+class AdminKey(Base):
+    __tablename__ = "admin_keys"
+
+    admin_key_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    server_name = Column(String(100), nullable=False)
+    server_url = Column(String(255), nullable=True)
+    admin_key = Column(String(255), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_by = Column(UUID(as_uuid=False), ForeignKey(
+        "users.user_id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow,
+                        onupdate=datetime.utcnow)
+
+    creator = relationship("User")
