@@ -81,11 +81,17 @@ def generate(
         return
 
     # --- Create Alert ---
+    # Use admin-configured template description as the summary — no hardcoded text
+    recommended_action = (
+        template.description
+        or f"{len(matching_actions)} action(s) recommended for {hive_state.replace('_', ' ')}"
+    )
+
     alert = Alert(
         hive_id=hive.hive_id,
         inference_id=inference.inference_id,
         severity_level=template.severity,
-        recommended_action=_build_summary(matching_actions),
+        recommended_action=recommended_action,
         action_status="pending",
     )
     db.add(alert)
@@ -108,17 +114,6 @@ def generate(
 
     # --- Send push notifications ---
     _run_async_in_thread(send_alert_notifications(alert, db), db)
-
-
-def _build_summary(actions: List[Advisory]) -> str:
-    """Build a summary of recommended actions for the alert."""
-    high_priority = [a for a in actions if a.priority_level == "high"]
-    if high_priority:
-        return f"{len(high_priority)} high-priority action(s) required. " + \
-               high_priority[0].action_title
-    elif actions:
-        return f"{len(actions)} recommended action(s). " + actions[0].action_title
-    return "Review recommended actions for this hive."
 
 
 def get_actions_for_inference(

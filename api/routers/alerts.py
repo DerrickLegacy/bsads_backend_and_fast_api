@@ -281,7 +281,8 @@ def _to_mobile_detail(alert: Alert, db: Session) -> MobileAlertDetailResponse:
     
     # Get title and details from template or alert
     if template:
-        title = template.hive_state
+        # Use human-readable title from hive_state, details from admin-configured description
+        title = template.hive_state.replace("_", " ").title()
         details = template.description or alert.recommended_action or ""
         advisory_type = template.advisory_type
     else:
@@ -300,8 +301,9 @@ def _to_mobile_detail(alert: Alert, db: Session) -> MobileAlertDetailResponse:
             "actions": [
                 {
                     "id": str(action.action_id),
+                    "title": action.action_title,
                     "description": action.action_description,
-                    "priority": action.priority_level.capitalize(),  # Ensure proper case: "High", "Medium", "Low"
+                    "priority": action.priority_level.capitalize(),
                 }
                 for action in advisory_actions
             ],

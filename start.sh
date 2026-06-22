@@ -48,6 +48,30 @@ if [ -n "$DB_URL" ]; then
     if psql "$DB_URL" -f migrations/seed_restructured_advisory_data.sql 2>&1 | grep -v "^$"; then
         echo "✓ Advisory action library seeded"
     fi
+
+    echo ""
+    echo "📝 Applying admin keys migration..."
+    if psql "$DB_URL" -f api/migrations/001_add_admin_keys_table.sql 2>&1 | grep -v "^$"; then
+        echo "✓ Admin keys migration completed"
+    fi
+
+    echo ""
+    echo "📝 Applying nullable user credentials migration..."
+    if psql "$DB_URL" -f api/migrations/002_make_user_credentials_nullable.sql 2>&1 | grep -v "^$"; then
+        echo "✓ Nullable user credentials migration completed"
+    fi
+
+    echo ""
+    echo "📝 Applying hive conditions table migration..."
+    if psql "$DB_URL" -f api/migrations/003_add_hive_conditions_table.sql 2>&1 | grep -v "^$"; then
+        echo "✓ Hive conditions table migration completed"
+    fi
+
+    echo ""
+    echo "📝 Applying prediction details migration..."
+    if psql "$DB_URL" -f api/migrations/004_add_prediction_details_to_inference.sql 2>&1 | grep -v "^$"; then
+        echo "✓ Prediction details migration completed"
+    fi
     
     echo ""
     echo "✓ All migrations applied successfully"
