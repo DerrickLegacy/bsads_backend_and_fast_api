@@ -87,6 +87,26 @@ def process_audio_file(audio_id: str, audio_bytes: bytes, hive_id: str) -> None:
 
         # Normalize the model's label to match database vocabulary
         hive_state = normalize_hive_state(result.label)
+        
+        # Build prediction details with top-3 predictions
+        # Sort all_scores by confidence descending and take top 3
+        sorted_predictions = sorted(
+            result.all_scores.items(), 
+            key=lambda x: x[1], 
+            reverse=True
+        )[:3]
+        
+        prediction_details = {
+            "predicted_class": hive_state,
+            "confidence": float(result.confidence),
+            "top_predictions": [
+                {
+                    "class": normalize_hive_state(class_name),
+                    "confidence": float(conf)
+                }
+                for class_name, conf in sorted_predictions
+            ]
+        }
 
         # --- Inference result ---
         inference = InferenceResult(
@@ -94,6 +114,7 @@ def process_audio_file(audio_id: str, audio_bytes: bytes, hive_id: str) -> None:
             audio_id             = audio_id,  # Link to the audio source
             hive_state           = hive_state,
             confidence_score     = result.confidence,
+            prediction_details   = prediction_details,  # Store full prediction data
             inference_latency_ms = result.latency_ms,
         )
         db.add(inference)

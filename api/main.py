@@ -20,6 +20,7 @@ from api.routers.advisory_templates import router as advisory_templates_router
 from api.routers.admin_views import router as admin_views_router
 from api.routers.admin_keys import router as admin_keys_router
 from api.routers.notifications import router as notifications_router
+from api.routers.device_upload import router as device_upload_router
 from api.routers import audio, auth, hives, inferences
 from api.seed import seed_initial_data
 from api.poller_concurrent import (
@@ -27,6 +28,7 @@ from api.poller_concurrent import (
     scan_all_sources_concurrent as scan_all_sources,
     recover_stuck_records,
 )
+from api.conditions_poller import poll_and_process_conditions
 from api.database import Base, SessionLocal, engine
 import logging
 import sys
@@ -91,6 +93,17 @@ _scheduler.add_job(
     id="recovery_job",
     replace_existing=True,
     max_instances=1,
+)
+
+# Job 4 — poll and process CSV condition data (runs every 2 minutes)
+_scheduler.add_job(
+    poll_and_process_conditions,
+    trigger="interval",
+    minutes=2,  # Poll conditions every 2 minutes
+    id="conditions_poller",
+    replace_existing=True,
+    max_instances=1,
+    coalesce=True,
 )
 
 
@@ -227,6 +240,11 @@ app.include_router(advisory_templates_router)
 app.include_router(advisory_library_router)
 app.include_router(advisory_actions_router)
 app.include_router(admin_views_router)
+app.include_router(admin_keys_router)
+app.include_router(device_upload_router)
+app.include_router(logs_router)
+app.include_router(weather_router)
+app.include_router(notifications_router)
 app.include_router(admin_keys_router)
 app.include_router(logs_router)
 app.include_router(weather_router)

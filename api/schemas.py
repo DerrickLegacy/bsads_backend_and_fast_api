@@ -486,6 +486,7 @@ class MobileAlertDetailResponse(BaseModel):
     acknowledged: bool
     audio_recording: Optional[AudioRecordingResponse] = None
     advisory: Optional[AdvisoryDetail] = None
+    prediction_details: Optional[dict] = None  # Top-3 predictions with confidence scores
 
 
 # ---------------------------------------------------------------------------
