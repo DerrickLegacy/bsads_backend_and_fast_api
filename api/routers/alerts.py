@@ -220,12 +220,20 @@ def _to_mobile_detail(alert: Alert, db: Session) -> MobileAlertDetailResponse:
     hive = db.query(Hive).filter(Hive.hive_id == alert.hive_id).first()
     hive_name = hive.hive_name if hive else None
     
+    # Get inference result for prediction details
+    inference = None
+    prediction_details = None
+    
     # Get audio recording if available
     audio_recording = None
     if alert.inference_id:
         inference = db.query(InferenceResult).filter(
             InferenceResult.inference_id == alert.inference_id
         ).first()
+        
+        # Extract prediction details from inference
+        if inference and inference.prediction_details:
+            prediction_details = inference.prediction_details
         
         if inference and inference.audio_id:
             audio = db.query(AudioSource).filter(
@@ -311,6 +319,7 @@ def _to_mobile_detail(alert: Alert, db: Session) -> MobileAlertDetailResponse:
         acknowledged=alert.action_status == "acknowledged",
         audio_recording=audio_recording,
         advisory=advisory_detail,
+        prediction_details=prediction_details,  # Include ML model predictions
     )
 
 

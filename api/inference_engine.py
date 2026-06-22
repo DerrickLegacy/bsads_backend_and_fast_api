@@ -26,6 +26,7 @@ class PredictionResult:
     label: str        # e.g. "swarming"
     confidence: float  # 0.0 – 1.0
     latency_ms: int   # round-trip time to HF Space
+    all_scores: dict  # All class predictions with confidence scores
 
 
 _client: Client | None = None
@@ -60,6 +61,7 @@ def predict_from_bytes(audio_bytes: bytes) -> PredictionResult:
             label=result["label"],
             confidence=float(result["score"]),
             latency_ms=latency_ms,
+            all_scores=result.get("all_scores", {}),  # Capture all prediction scores
         )
     finally:
         if tmp_path and os.path.exists(tmp_path):

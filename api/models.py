@@ -102,7 +102,7 @@ class AudioSource(Base):
 
 
 # ---------------------------------------------------------------------------
-# EnvironmentalData
+# EnvironmentalData (collective/external weather)
 # ---------------------------------------------------------------------------
 class EnvironmentalData(Base):
     __tablename__ = "environmental_data"
@@ -115,6 +115,35 @@ class EnvironmentalData(Base):
     humidity = Column(Numeric(5, 2), nullable=True)
     recorded_at = Column(DateTime, default=datetime.utcnow)
     hive = relationship("Hive", back_populates="env_records")
+
+
+# ---------------------------------------------------------------------------
+# HiveCondition (internal hive sensor readings - 3 zones)
+# ---------------------------------------------------------------------------
+class HiveCondition(Base):
+    __tablename__ = "hive_conditions"
+
+    condition_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    hive_id = Column(UUID(as_uuid=False), ForeignKey(
+        "hives.hive_id", ondelete="CASCADE"), nullable=False)
+    audio_id = Column(UUID(as_uuid=False), ForeignKey(
+        "audio_sources.audio_id", ondelete="SET NULL"), nullable=True)
+    
+    # Three-zone temperature readings (in Celsius)
+    temp_honey = Column(Numeric(5, 2), nullable=True)     # Honey storage zone
+    temp_brood = Column(Numeric(5, 2), nullable=True)     # Brood rearing zone
+    temp_exterior = Column(Numeric(5, 2), nullable=True)  # External/entrance
+    
+    # Three-zone humidity readings (percentage)
+    humidity_honey = Column(Numeric(5, 2), nullable=True)
+    humidity_brood = Column(Numeric(5, 2), nullable=True)
+    humidity_exterior = Column(Numeric(5, 2), nullable=True)
+    
+    recorded_at = Column(DateTime, nullable=False)  # From device timestamp
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    hive = relationship("Hive")
+    audio = relationship("AudioSource")
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +183,7 @@ class InferenceResult(Base):
         "audio_sources.audio_id", ondelete="SET NULL"), nullable=True)
     hive_state = Column(String(50), nullable=False)
     confidence_score = Column(Numeric(5, 4), nullable=False)
+    prediction_details = Column(JSONB, nullable=True)  # Stores top-3 predictions with confidences
     inference_latency_ms = Column(Numeric, nullable=True)
     analyzed_at = Column(DateTime, default=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)

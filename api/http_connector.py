@@ -304,3 +304,72 @@ def create_hive_folder(config: dict, hive_name: str) -> dict:
     
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
+
+
+def list_conditions(config: dict, hive_name: str) -> list[str]:
+    """
+    List available CSV condition files from the farmer's server.
+    
+    Args:
+        config: Connection config dict with keys:
+            - api_base_url: Base URL of the farmer's server
+            - api_key: API key for authentication
+        hive_name: Hive name to filter conditions for a specific hive
+    
+    Returns:
+        List of condition file paths (e.g., ["Hive01/data_20260620.csv"])
+    
+    Raises:
+        requests.exceptions.RequestException: On connection or HTTP errors
+    """
+    base_url = config.get("api_base_url", "").rstrip("/")
+    base_url = _translate_localhost_url(base_url)  # Translate for Docker
+    api_key = config.get("api_key", "")
+    
+    if not base_url or not api_key:
+        raise ValueError("api_base_url and api_key are required in config")
+    
+    session = _build_session(api_key)
+    
+    params = {"hive_name": hive_name} if hive_name else {}
+    
+    response = session.get(f"{base_url}/conditions", params=params, timeout=10)
+    response.raise_for_status()
+    
+    data = response.json()
+    return data.get("conditions", [])
+
+
+def download_condition_file(config: dict, filepath: str) -> str:
+    """
+    Download a single CSV condition file from the farmer's server.
+    
+    Args:
+        config: Connection config dict with keys:
+            - api_base_url: Base URL of the farmer's server
+            - api_key: API key for authentication
+        filepath: Path to the file (e.g., "Hive01/data.csv")
+    
+    Returns:
+        CSV file contents as string
+    
+    Raises:
+        requests.exceptions.RequestException: On connection or HTTP errors
+    """
+    base_url = config.get("api_base_url", "").rstrip("/")
+    base_url = _translate_localhost_url(base_url)  # Translate for Docker
+    api_key = config.get("api_key", "")
+    
+    if not base_url or not api_key:
+        raise ValueError("api_base_url and api_key are required in config")
+    
+    session = _build_session(api_key)
+    response = session.get(
+        f"{base_url}/conditions/{filepath}",
+        timeout=30,
+        stream=True
+    )
+    response.raise_for_status()
+    
+    # Return as text (CSV)
+    return response.text
