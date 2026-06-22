@@ -433,11 +433,22 @@ class DashboardKeyMetrics(BaseModel):
     temperature_c: Optional[float] = None
     humidity_percent: Optional[float] = None
 
+
+class DashboardSilentHive(BaseModel):
+    hive_id: str
+    hive_name: Optional[str] = None
+    last_audio_at: Optional[str] = None   # ISO timestamp or null
+    hours_silent: Optional[float] = None
+
+
 class DashboardResponse(BaseModel):
     total_hives: int
     active_hives: int
     status_counts: DashboardStatusCounts
     key_metrics: DashboardKeyMetrics
+    recordings_today: int = 0
+    silent_hives: list[DashboardSilentHive] = []
+    pending_alerts: int = 0
 
 
 # ---------------------------------------------------------------------------

@@ -3,13 +3,17 @@ Rule-based advisory generation with confidence threshold-based action selection.
 
 When the model classifies a hive in a concerning state, this module:
   1. Looks up the AdvisoryTemplate for the classification
-  2. Queries advisories table for actions matching the confidence score
-  3. Creates AdvisoryAction records for the specific inference
-  4. Creates an Alert linked to the inference
-  5. Sends push notifications via Expo Push API
+  2. Always creates an Alert for any non-silent dangerous state
+  3. Attaches AdvisoryAction records from the advisory library when available
+  4. Sends push notifications via Expo Push API
 
 States that do NOT trigger alerts (no advisory needed):
   normal | queenbee_present | external_noise | uncertain
+
+Design guarantee:
+  An Alert is ALWAYS created for alerting states regardless of whether the
+  advisory library has matching rows.  Advisory actions are a bonus — they
+  enrich the alert with a checklist but their absence never blocks the alert.
 """
 
 import asyncio
@@ -40,51 +44,39 @@ def generate(
     db: Session,
 ) -> None:
     """
-    If the classified state warrants an alert, create Alert + AdvisoryAction
-    rows based on confidence threshold matching and commit them.
-    
+    Create an Alert + AdvisoryAction rows for any dangerous hive state.
+
+    The Alert is always created when the state is not silent — advisory
+    library rows are attached when they exist but their absence never
+    prevents the alert from being raised.
+
     Safe to call for any state — silently does nothing for non-alerting states.
     """
     hive_state = inference.hive_state
     confidence = float(inference.confidence_score)
-    
+
     # Update hive current_state regardless
     hive.current_state = hive_state
-    
+
     if hive_state in _SILENT_STATES:
         return
 
-    # --- Look up advisory template from database ---
+    # --- Look up advisory template ---
     template = db.query(AdvisoryTemplate).filter(
         AdvisoryTemplate.hive_state == hive_state
     ).first()
 
     if template is None:
-        # Unknown state — just update hive state, no alert
+        # Completely unknown state — still update hive state, but no alert
         return
 
-    # Check if confidence meets minimum threshold
-    if confidence < float(template.min_confidence_threshold):
-        # Confidence too low to trigger actions
-        return
-
-    # --- Query advisories that match this classification and confidence ---
-    matching_actions = db.query(Advisory).filter(
-        Advisory.template_id == template.template_id,
-        Advisory.is_active == True,
-        Advisory.confidence_threshold_min <= confidence,
-        Advisory.confidence_threshold_max >= confidence
-    ).order_by(Advisory.action_order).all()
-
-    if not matching_actions:
-        # No matching actions for this confidence level
-        return
-
-    # --- Create Alert ---
-    # Use admin-configured template description as the summary — no hardcoded text
+    # --- Always create the Alert for any alerting state ---
+    # We do NOT gate on confidence threshold here; every detection that
+    # reaches this point deserves a notification.  The confidence value is
+    # stored on the InferenceResult for the farmer to see.
     recommended_action = (
         template.description
-        or f"{len(matching_actions)} action(s) recommended for {hive_state.replace('_', ' ')}"
+        or f"{hive_state.replace('_', ' ').title()} detected — inspect your hive"
     )
 
     alert = Alert(
@@ -95,9 +87,27 @@ def generate(
         action_status="pending",
     )
     db.add(alert)
-    db.flush()
+    db.flush()  # Populate alert.alert_id before using it below
 
-    # --- Create AdvisoryAction records for this specific inference ---
+    # --- Attach matching AdvisoryAction rows (best-effort) ---
+    # Query library actions that cover this confidence score.
+    # If the library is empty or no row covers this confidence, the alert
+    # still exists — the farmer just won't see a checklist.
+    matching_actions = db.query(Advisory).filter(
+        Advisory.template_id == template.template_id,
+        Advisory.is_active == True,
+        Advisory.confidence_threshold_min <= confidence,
+        Advisory.confidence_threshold_max >= confidence,
+    ).order_by(Advisory.action_order).all()
+
+    # Fallback: if nothing matched the exact confidence band, grab all active
+    # actions for this template so the alert always has a checklist.
+    if not matching_actions:
+        matching_actions = db.query(Advisory).filter(
+            Advisory.template_id == template.template_id,
+            Advisory.is_active == True,
+        ).order_by(Advisory.action_order).all()
+
     for action_template in matching_actions:
         advisory_action = AdvisoryAction(
             inference_id=inference.inference_id,

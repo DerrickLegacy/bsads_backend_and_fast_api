@@ -1,13 +1,16 @@
+from datetime import datetime, timedelta
+
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends
 
 from api.database import get_db
-from api.models import EnvironmentalData, Hive, User
+from api.models import Alert, AudioSource, EnvironmentalData, Hive, User
 from api.routers.auth import get_current_user
 from api.schemas import (
     DashboardKeyMetrics,
     DashboardResponse,
+    DashboardSilentHive,
     DashboardStatusCounts,
 )
 
@@ -23,12 +26,16 @@ def get_dashboard(
     current_user: User = Depends(get_current_user),
 ):
     """Summary statistics for the logged-in farmer's dashboard screen."""
-    hives = db.query(Hive).filter(Hive.owner_id == current_user.user_id).all()
+    hives = db.query(Hive).filter(
+        Hive.owner_id == current_user.user_id,
+        Hive.is_deleted == False,
+    ).all()
 
     total_hives = len(hives)
     active_hives = sum(1 for h in hives if h.current_state in _ACTIVE_STATES)
+    hive_ids = [h.hive_id for h in hives]
 
-    # State counts
+    # ── State counts ─────────────────────────────────────────────────────
     counts = DashboardStatusCounts()
     for h in hives:
         state = h.current_state or "unknown"
@@ -43,8 +50,7 @@ def get_dashboard(
         else:
             counts.other += 1
 
-    # Latest environmental data — one record per hive, then average
-    hive_ids = [h.hive_id for h in hives]
+    # ── Key metrics (avg of latest env reading per hive) ─────────────────
     metrics = DashboardKeyMetrics()
     if hive_ids:
         latest_per_hive = (
@@ -56,7 +62,6 @@ def get_dashboard(
             .group_by(EnvironmentalData.hive_id)
             .subquery()
         )
-
         env_records = (
             db.query(EnvironmentalData)
             .join(
@@ -80,9 +85,79 @@ def get_dashboard(
                 [float(r.humidity) if r.humidity else None for r in env_records]),
         )
 
+    # ── Pending alerts count ──────────────────────────────────────────────
+    pending_alerts = 0
+    if hive_ids:
+        pending_alerts = (
+            db.query(func.count(Alert.alert_id))
+            .filter(Alert.hive_id.in_(hive_ids), Alert.action_status == "pending")
+            .scalar() or 0
+        )
+
+    # ── Recordings today ─────────────────────────────────────────────────
+    # Count audio files whose ingestion_timestamp is >= today midnight UTC
+    recordings_today = 0
+    if hive_ids:
+        today_start = datetime.utcnow().replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        recordings_today = (
+            db.query(func.count(AudioSource.audio_id))
+            .filter(
+                AudioSource.hive_id.in_(hive_ids),
+                AudioSource.ingestion_timestamp >= today_start,
+            )
+            .scalar() or 0
+        )
+
+    # ── Silent hives (no audio received in the last 4 hours) ─────────────
+    silent_hives: list[DashboardSilentHive] = []
+    if hive_ids:
+        four_hours_ago = datetime.utcnow() - timedelta(hours=4)
+
+        # Latest ingestion timestamp per hive (NULL = never received audio)
+        latest_audio_subq = (
+            db.query(
+                AudioSource.hive_id,
+                func.max(AudioSource.ingestion_timestamp).label("last_audio_at"),
+            )
+            .filter(AudioSource.hive_id.in_(hive_ids))
+            .group_by(AudioSource.hive_id)
+            .subquery()
+        )
+
+        rows = (
+            db.query(Hive, latest_audio_subq.c.last_audio_at)
+            .outerjoin(
+                latest_audio_subq,
+                Hive.hive_id == latest_audio_subq.c.hive_id,
+            )
+            .filter(Hive.hive_id.in_(hive_ids))
+            .all()
+        )
+
+        for hive, last_audio_at in rows:
+            if last_audio_at is None or last_audio_at < four_hours_ago:
+                hours_silent = None
+                if last_audio_at is not None:
+                    diff = datetime.utcnow() - last_audio_at
+                    hours_silent = round(diff.total_seconds() / 3600, 1)
+                silent_hives.append(
+                    DashboardSilentHive(
+                        hive_id=str(hive.hive_id),
+                        hive_name=hive.hive_name or str(hive.hive_id),
+                        last_audio_at=last_audio_at.isoformat() if last_audio_at else None,
+                        hours_silent=hours_silent,
+                    )
+                )
+
     return DashboardResponse(
         total_hives=total_hives,
         active_hives=active_hives,
         status_counts=counts,
         key_metrics=metrics,
+        recordings_today=recordings_today,
+        silent_hives=silent_hives,
+        pending_alerts=pending_alerts,
     )
+
