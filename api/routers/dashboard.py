@@ -95,17 +95,17 @@ def get_dashboard(
         )
 
     # ── Recordings today ─────────────────────────────────────────────────
-    # Count audio files whose ingestion_timestamp is >= today midnight UTC
+    # Use AT TIME ZONE 'Africa/Kampala' (EAT = UTC+3) so "today" matches
+    # the farmer's local calendar day, not the server's UTC day.
     recordings_today = 0
     if hive_ids:
-        today_start = datetime.utcnow().replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
         recordings_today = (
             db.query(func.count(AudioSource.audio_id))
             .filter(
                 AudioSource.hive_id.in_(hive_ids),
-                AudioSource.ingestion_timestamp >= today_start,
+                func.date(
+                    func.timezone("Africa/Kampala", AudioSource.ingestion_timestamp)
+                ) == func.current_date(),
             )
             .scalar() or 0
         )
