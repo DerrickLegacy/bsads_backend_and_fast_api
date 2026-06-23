@@ -210,6 +210,7 @@ def _to_mobile(alert: Alert, db: Session, index: int = 0) -> MobileAlertResponse
         date=alert.alert_timestamp.isoformat() if alert.alert_timestamp else "",
         summary=summary,
         alertStatus=alert.action_status or "pending",
+        viewed_at=alert.viewed_at.isoformat() if alert.viewed_at else None,
     )
 
 
@@ -358,7 +359,7 @@ def get_all_alerts(
         if hive_id:
             q = q.filter(Alert.hive_id == hive_id)
 
-    alerts = q.order_by(Alert.alert_timestamp.desc()).limit(100).all()
+    alerts = q.order_by(Alert.alert_timestamp.desc()).limit(10).all()
     return [_to_mobile(a, db, i) for i, a in enumerate(alerts)]
 
 
@@ -411,9 +412,10 @@ def get_alert_detail(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
-    # Automatically acknowledge when viewing details (if still pending)
-    if alert.action_status == "pending":
-        alert.action_status = "acknowledged"
+    # Mark as viewed (sets viewed_at timestamp) but do NOT auto-acknowledge.
+    # The farmer's badge count uses viewed_at to determine "seen" alerts.
+    if alert.viewed_at is None:
+        alert.viewed_at = datetime.utcnow()
         db.commit()
         db.refresh(alert)
 
