@@ -462,6 +462,7 @@ class MobileAlertResponse(BaseModel):
     date: str
     summary: str
     alertStatus: str = "pending"  # "pending", "acknowledged", "sent"
+    viewed_at: Optional[str] = None  # ISO timestamp when farmer first viewed it
 
 
 class AudioRecordingResponse(BaseModel):
@@ -522,6 +523,8 @@ class HiveDetailResponse(HiveResponse):
     acknowledged: bool = False
     # Confidence score from latest inference
     confidence_score: Optional[float] = None
+    # Full prediction details from latest inference (predicted_class + top_predictions)
+    prediction_details: Optional[dict] = None
     metric_series: list[MetricPoint] = []
     weather: Optional[WeatherData] = None  # Current weather at hive location
     # Human-readable last analysis time

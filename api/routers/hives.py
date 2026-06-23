@@ -333,6 +333,7 @@ def get_hive(
     acknowledged = False
     confidence_score = None
     last_analysis_time = None
+    prediction_details = None
     
     # Get the latest inference for this hive regardless of alert
     latest_inference = (
@@ -345,6 +346,7 @@ def get_hive(
         confidence_score = float(latest_inference.confidence_score) if latest_inference.confidence_score is not None else None
         if latest_inference.analyzed_at:
             last_analysis_time = latest_inference.analyzed_at.isoformat()
+        prediction_details = latest_inference.prediction_details  # Already a dict (JSONB)
     
     if latest_alert:
         # Alert model doesn't have advisory relationship - use recommended_action directly
@@ -397,6 +399,7 @@ def get_hive(
         alert_message=alert_message,
         acknowledged=acknowledged,
         confidence_score=confidence_score,
+        prediction_details=prediction_details,
         metric_series=metric_series,
         weather=weather_data,
         last_analysis_time=last_analysis_time,
@@ -584,3 +587,90 @@ def activate_data_source(
         "hive_id": hive_id,
         "is_active": True
     }
+
+
+@router.get("/{hive_id}/conditions")
+def get_hive_conditions(
+    hive_id: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return recent internal hive sensor readings (temp + humidity from the
+    3 hive zones: honey, brood, exterior) for display in the mobile app.
+    Ordered oldest-first so the frontend can draw a time-series chart.
+    """
+    from api.models import HiveCondition
+
+    hive = db.query(Hive).filter(
+        Hive.hive_id == hive_id,
+        Hive.owner_id == current_user.user_id,
+        Hive.is_deleted == False,
+    ).first()
+    if not hive:
+        raise HTTPException(status_code=404, detail="Hive not found")
+
+    rows = (
+        db.query(HiveCondition)
+        .filter(HiveCondition.hive_id == hive_id)
+        .order_by(HiveCondition.recorded_at.desc())
+        .limit(limit)
+        .all()
+    )
+    # Return oldest-first for charting
+    rows = list(reversed(rows))
+
+    return [
+        {
+            "time_label": r.recorded_at.strftime("%H:%M") if r.recorded_at else "",
+            "recorded_at": r.recorded_at.isoformat() if r.recorded_at else "",
+            "temp_honey": float(r.temp_honey) if r.temp_honey is not None else None,
+            "temp_brood": float(r.temp_brood) if r.temp_brood is not None else None,
+            "temp_exterior": float(r.temp_exterior) if r.temp_exterior is not None else None,
+            "humidity_honey": float(r.humidity_honey) if r.humidity_honey is not None else None,
+            "humidity_brood": float(r.humidity_brood) if r.humidity_brood is not None else None,
+            "humidity_exterior": float(r.humidity_exterior) if r.humidity_exterior is not None else None,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/{hive_id}/state-trend")
+def get_hive_state_trend(
+    hive_id: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return the last N inference results for a hive as time-series data
+    suitable for the hive state trend line chart on the mobile detail screen.
+    Each point has a time label and the classified hive_state.
+    """
+    hive = db.query(Hive).filter(
+        Hive.hive_id == hive_id,
+        Hive.owner_id == current_user.user_id,
+        Hive.is_deleted == False,
+    ).first()
+    if not hive:
+        raise HTTPException(status_code=404, detail="Hive not found")
+
+    results = (
+        db.query(InferenceResult)
+        .filter(InferenceResult.hive_id == hive_id)
+        .order_by(InferenceResult.analyzed_at.desc())
+        .limit(limit)
+        .all()
+    )
+    results = list(reversed(results))
+
+    return [
+        {
+            "time_label": r.analyzed_at.strftime("%H:%M") if r.analyzed_at else "",
+            "analyzed_at": r.analyzed_at.isoformat() if r.analyzed_at else "",
+            "hive_state": r.hive_state,
+            "confidence": float(r.confidence_score) if r.confidence_score is not None else 0,
+        }
+        for r in results
+    ]
