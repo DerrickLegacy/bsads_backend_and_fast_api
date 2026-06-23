@@ -29,6 +29,7 @@ from api.poller_concurrent import (
     recover_stuck_records,
 )
 from api.conditions_poller import poll_and_process_conditions
+from api.queen_absence_watcher import check_queen_absence
 from api.database import Base, SessionLocal, engine
 import logging
 import sys
@@ -99,8 +100,20 @@ _scheduler.add_job(
 _scheduler.add_job(
     poll_and_process_conditions,
     trigger="interval",
-    minutes=2,  # Poll conditions every 2 minutes
+    minutes=2,
     id="conditions_poller",
+    replace_existing=True,
+    max_instances=1,
+    coalesce=True,
+)
+
+# Job 5 — queen absence watcher (runs every 6 hours)
+# Raises an alert if no queenbee_present inference in the last 48 hours
+_scheduler.add_job(
+    check_queen_absence,
+    trigger="interval",
+    hours=6,
+    id="queen_absence_watcher",
     replace_existing=True,
     max_instances=1,
     coalesce=True,

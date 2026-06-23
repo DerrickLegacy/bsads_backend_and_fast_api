@@ -226,7 +226,7 @@ class AdvisoryAction(Base):
 
     action_id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
     inference_id = Column(UUID(as_uuid=False), ForeignKey(
-        "inference_results.inference_id", ondelete="CASCADE"), nullable=False)
+        "inference_results.inference_id", ondelete="CASCADE"), nullable=True)  # nullable for rule-based alerts
     hive_id = Column(UUID(as_uuid=False), ForeignKey(
         "hives.hive_id", ondelete="CASCADE"), nullable=False)
     advisory_id = Column(UUID(as_uuid=False), ForeignKey(
@@ -261,7 +261,7 @@ class Alert(Base):
     hive_id = Column(UUID(as_uuid=False), ForeignKey(
         "hives.hive_id", ondelete="CASCADE"), nullable=False)
     inference_id = Column(UUID(as_uuid=False), ForeignKey(
-        "inference_results.inference_id", ondelete="CASCADE"), nullable=False)
+        "inference_results.inference_id", ondelete="CASCADE"), nullable=True)  # nullable for rule-based alerts
     severity_level = Column(String(20), nullable=False)
     recommended_action = Column(Text, nullable=True)
     action_status = Column(String(20), nullable=False, default="pending")
