@@ -26,8 +26,10 @@ from api.models import (
 )
 from api.push_notifications import send_alert_notifications
 
-# States that never generate alerts/advisories
-_SILENT_STATES = {"normal", "queenbee_present", "external_noise", "uncertain"}
+# No states are permanently silent — every classification gets an alert.
+# The advisory library (advisories table) controls what actions are shown.
+# States with no advisory rows will still get an alert with the template description.
+_SILENT_STATES: set = set()
 
 
 def _run_async_in_thread(coro, db):
