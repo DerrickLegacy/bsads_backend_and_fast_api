@@ -2,5 +2,7 @@ gradio>=4.0.0
 librosa>=0.10.0
 numpy>=1.23.0
 joblib>=1.2.0
-scikit-learn>=1.2.0
+scikit-learn==1.6.1
 huggingface_hub>=0.20.0
+torch>=2.0.0
+torchvision>=0.15.0
