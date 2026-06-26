@@ -138,6 +138,10 @@ def process_audio_file(audio_id: str, audio_bytes: bytes, hive_id: str) -> None:
         hive = db.query(Hive).filter(Hive.hive_id == hive_id).first()
         advisory_module.generate(inference, hive, db)
 
+        # --- Keep hive.current_state in sync with the latest inference ---
+        if hive:
+            hive.current_state = hive_state
+
         audio_record.status = "processed"
 
         log(db, "info", "inference",

@@ -57,8 +57,10 @@ def generate(
     hive_state = inference.hive_state
     confidence = float(inference.confidence_score)
 
-    # Update hive current_state regardless
-    hive.current_state = hive_state
+    # Update hive current_state only if hive is not None
+    # (processing.py also updates this — guard here defensively)
+    if hive is not None:
+        hive.current_state = hive_state
 
     if hive_state in _SILENT_STATES:
         return
@@ -73,16 +75,13 @@ def generate(
         return
 
     # --- Always create the Alert for any alerting state ---
-    # We do NOT gate on confidence threshold here; every detection that
-    # reaches this point deserves a notification.  The confidence value is
-    # stored on the InferenceResult for the farmer to see.
     recommended_action = (
         template.description
         or f"{hive_state.replace('_', ' ').title()} detected — inspect your hive"
     )
 
     alert = Alert(
-        hive_id=hive.hive_id,
+        hive_id=inference.hive_id,
         inference_id=inference.inference_id,
         severity_level=template.severity,
         recommended_action=recommended_action,
@@ -92,9 +91,6 @@ def generate(
     db.flush()  # Populate alert.alert_id before using it below
 
     # --- Attach matching AdvisoryAction rows (best-effort) ---
-    # Query library actions that cover this confidence score.
-    # If the library is empty or no row covers this confidence, the alert
-    # still exists — the farmer just won't see a checklist.
     matching_actions = db.query(Advisory).filter(
         Advisory.template_id == template.template_id,
         Advisory.is_active == True,
@@ -113,7 +109,7 @@ def generate(
     for action_template in matching_actions:
         advisory_action = AdvisoryAction(
             inference_id=inference.inference_id,
-            hive_id=hive.hive_id,
+            hive_id=inference.hive_id,
             advisory_id=action_template.advisory_id,
             template_id=template.template_id,
             confidence_score=confidence,
@@ -123,6 +119,9 @@ def generate(
             status="pending",
         )
         db.add(advisory_action)
+
+    # Flush so all advisory_actions get IDs — caller commits the transaction
+    db.flush()
 
     # --- Send push notifications ---
     _run_async_in_thread(send_alert_notifications(alert, db), db)

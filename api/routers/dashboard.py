@@ -35,7 +35,7 @@ def get_dashboard(
     active_hives = sum(1 for h in hives if h.current_state in _ACTIVE_STATES)
     hive_ids = [h.hive_id for h in hives]
 
-    # ── State counts ─────────────────────────────────────────────────────
+    # ── State counts from hive.current_state ─────────────────────────────
     counts = DashboardStatusCounts()
     for h in hives:
         state = h.current_state or "unknown"
@@ -47,6 +47,16 @@ def get_dashboard(
             counts.swarm += 1
         elif state == "abscondment":
             counts.abscondment += 1
+        elif state == "missing_queen":
+            counts.missing_queen += 1
+        elif state == "queenbee_present":
+            counts.queenbee_present += 1
+        elif state == "pest_infested":
+            counts.pest_infested += 1
+        elif state == "external_noise":
+            counts.external_noise += 1
+        elif state == "uncertain":
+            counts.uncertain += 1
         else:
             counts.other += 1
 
