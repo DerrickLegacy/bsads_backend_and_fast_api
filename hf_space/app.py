@@ -131,6 +131,7 @@ print(f"[startup] Downloading files from {REPO_ID} ...")
 _encoder_path = hf_hub_download(REPO_ID, "cnn_label_encoder.pkl")
 _label_encoder = joblib.load(_encoder_path)
 NUM_CLASSES = len(_label_encoder.classes_)
+_TOP30_FEATURES = []  # only populated for gradient_boosting
 print(f"[startup] Classes ({NUM_CLASSES}): {list(_label_encoder.classes_)}")
 
 if MODEL_TYPE in ("cnn", "resnet", "ensemble"):
@@ -164,12 +165,15 @@ if MODEL_TYPE in ("cnn", "resnet", "ensemble"):
 else:
     # Gradient Boosting (default)
     import sklearn  # noqa — validates scikit-learn is installed
+    import json as _json
     _gb_encoder_path = hf_hub_download(REPO_ID, "label_encoder.pkl")
     _gb_model_path   = hf_hub_download(REPO_ID, "gradient_boosting_model.pkl")
+    _top30_path      = hf_hub_download(REPO_ID, "top30_features.json")
     _model           = joblib.load(_gb_model_path)
     _label_encoder   = joblib.load(_gb_encoder_path)   # overwrite with GB encoder
+    _TOP30_FEATURES  = _json.loads(open(_top30_path).read())
     NUM_CLASSES      = len(_label_encoder.classes_)
-    print(f"[startup] Gradient Boosting model loaded.")
+    print(f"[startup] Gradient Boosting model loaded (expects {len(_TOP30_FEATURES)} features).")
     print(f"[startup] Classes ({NUM_CLASSES}): {list(_label_encoder.classes_)}")
 
 
@@ -214,9 +218,13 @@ def _extract_mel_spectrogram(y: np.ndarray) -> np.ndarray:
 
 
 def _extract_classical_features(y: np.ndarray) -> np.ndarray:
-    """171 hand-crafted features — identical to the training pipeline."""
-    feats: dict = {}
+    """
+    Extract the top-30 features the GB model was trained on, in the exact
+    order stored in top30_features.json. Computes all 171 features first,
+    then selects and reorders to match training.
+    """
     sr = SAMPLE_RATE
+    feats: dict = {}
 
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=40, n_fft=N_FFT, hop_length=HOP_LENGTH)
     for i in range(40):
@@ -264,7 +272,8 @@ def _extract_classical_features(y: np.ndarray) -> np.ndarray:
     for i in range(6):
         feats[f"tonnetz_{i}_mean"] = float(np.mean(tonnetz[i]))
 
-    return np.array(list(feats.values())).reshape(1, -1)
+    # Select only the top-30 features the model was trained on, in training order
+    return np.array([feats[f] for f in _TOP30_FEATURES]).reshape(1, -1)
 
 
 def _pytorch_inference(model_or_tuple, tensor: torch.Tensor) -> np.ndarray:
