@@ -426,6 +426,11 @@ class DashboardStatusCounts(BaseModel):
     pre_swarm: int = 0
     swarm: int = 0
     abscondment: int = 0
+    missing_queen: int = 0
+    queenbee_present: int = 0
+    pest_infested: int = 0
+    external_noise: int = 0
+    uncertain: int = 0
     other: int = 0
 
 
