@@ -31,6 +31,7 @@ from api.system_logger import exc_details, log
 # Database expects: normal | pre_swarm | swarm | abscondment | missing_queen |
 #                   queenbee_present | pest_infested | external_noise | uncertain
 LABEL_TO_HIVE_STATE = {
+    # --- original 5-class GB model labels ---
     "swarming": "swarm",
     "swarm": "swarm",
     "pre-swarming": "pre_swarm",
@@ -49,6 +50,14 @@ LABEL_TO_HIVE_STATE = {
     "noise": "external_noise",
     "uncertain": "uncertain",
     "unknown": "uncertain",
+
+    # --- 7-class CNN / ResNet / Ensemble model labels ---
+    "active_colony": "normal",           # healthy active colony
+    "inactive_hive": "abscondment",      # hive has gone quiet / absconded
+    "pests": "pest_infested",            # pest presence detected
+    "quacking_queen_bee": "queenbee_present",  # virgin/quacking queen heard
+    "queenbee_absent": "missing_queen",  # no queen detected
+    # "swarming" and "external_noise" already covered above
 }
 
 
@@ -87,25 +96,30 @@ def process_audio_file(audio_id: str, audio_bytes: bytes, hive_id: str) -> None:
 
         # Normalize the model's label to match database vocabulary
         hive_state = normalize_hive_state(result.label)
-        
-        # Build prediction details with top-3 predictions
-        # Sort all_scores by confidence descending and take top 3
+
+        # Sort all scores descending for top_predictions
         sorted_predictions = sorted(
-            result.all_scores.items(), 
-            key=lambda x: x[1], 
-            reverse=True
-        )[:3]
-        
+            result.all_scores.items(),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+
         prediction_details = {
             "predicted_class": hive_state,
             "confidence": float(result.confidence),
+            # Top-3 with DB-normalised class names (what the app uses for alerts/display)
             "top_predictions": [
                 {
                     "class": normalize_hive_state(class_name),
-                    "confidence": float(conf)
+                    "confidence": float(conf),
                 }
+                for class_name, conf in sorted_predictions[:3]
+            ],
+            # Full scores from the model — raw labels preserved so nothing is lost
+            "all_scores": {
+                class_name: float(conf)
                 for class_name, conf in sorted_predictions
-            ]
+            },
         }
 
         # --- Inference result ---
