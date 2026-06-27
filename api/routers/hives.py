@@ -43,14 +43,10 @@ def create_hive(
 ):
     """
     Register a new hive for the logged-in farmer.
-
-    If the user has server_url and api_key configured, automatically creates
-    an HTTP API data source for the hive and marks it as ACTIVE by default.
-    The poller will handle connection errors gracefully and log them.
-
-    If the user has no credentials, creates an inactive placeholder that must
-    be configured later via the /data-source/configure endpoint.
-
+    
+    Folders on the external data source server will be created automatically
+    when the first audio or conditions file is uploaded.
+    
     Returns suggested_remote_folder — the path where the farmer should store
     recordings on their external server, organized by API key.
     """
@@ -78,78 +74,18 @@ def create_hive(
     db.commit()
     db.refresh(hive)
 
-    # Auto-configure HTTP API data source if user has credentials
+    # Folder creation will happen automatically when first file is uploaded
     folder_created = False
     conditions_folder_created = False
     folder_creation_error = None
     conditions_folder_creation_error = None
-    
+
+    # Create data source entry
     if owner_user.server_url and owner_user.api_key:
         api_config = {
             "api_base_url": owner_user.server_url.rstrip("/"),
             "api_key": owner_user.api_key,
         }
-
-        # Test connection
-        from api.http_connector import test_connection
-
-        connection_test = test_connection(api_config)
-
-        # Try to create the hive folder on the farmer's server
-        # NOTE: This is optional - the farmer's server may auto-create folders
-        # or the farmer may manually create them. We try but don't fail if it doesn't work.
-        hive_folder = _safe_hive_folder_name(hive.hive_name, str(hive.hive_id))
-        
-        from api.http_connector import create_hive_folder as http_create_hive_folder, create_hive_conditions_folder
-        folder_result = http_create_hive_folder(api_config, hive_folder)
-        
-        if folder_result.get("ok"):
-            folder_created = True
-        else:
-            # This is expected if the farmer's server doesn't support folder creation endpoint
-            # The folder will be created when the farmer first uploads audio files
-            folder_creation_error = folder_result.get("error", "Folder auto-creation not supported")
-            from api.models import SystemLog
-            import logging
-            logger = logging.getLogger("bsads")
-            logger.info(f"Hive folder creation skipped: {hive_folder} - {folder_creation_error}")
-            db.add(SystemLog(
-                level="info",
-                event_type="http_api",
-                message=f"Hive folder not auto-created: {hive_folder}",
-                details={
-                    "hive_id": str(hive.hive_id),
-                    "suggested_folder": hive_folder,
-                    "reason": folder_creation_error
-                },
-                hive_id=hive.hive_id,
-                user_id=owner_user.user_id,
-            ))
-            db.commit()
-        
-        # Try to create the conditions hive folder on the farmer's server
-        conditions_folder_result = create_hive_conditions_folder(api_config, hive_folder)
-        
-        if conditions_folder_result.get("ok"):
-            conditions_folder_created = True
-        else:
-            # This is expected if the farmer's server doesn't support conditions folder creation endpoint
-            # The folder will be created when the farmer first uploads conditions files
-            conditions_folder_creation_error = conditions_folder_result.get("error", "Conditions folder auto-creation not supported")
-            logger.info(f"Hive conditions folder creation skipped: {hive_folder} - {conditions_folder_creation_error}")
-            db.add(SystemLog(
-                level="info",
-                event_type="http_api",
-                message=f"Hive conditions folder not auto-created: {hive_folder}",
-                details={
-                    "hive_id": str(hive.hive_id),
-                    "suggested_folder": hive_folder,
-                    "reason": conditions_folder_creation_error
-                },
-                hive_id=hive.hive_id,
-                user_id=owner_user.user_id,
-            ))
-            db.commit()
 
         data_source = FarmerDataSource(
             user_id=owner_user.user_id,
@@ -157,19 +93,18 @@ def create_hive(
             source_type="http_api",
             source_path=owner_user.server_url,
             connection_config=api_config,
-            is_active=True,  # Always active - poller will handle connection errors gracefully
+            is_active=True,
         )
         db.add(data_source)
         db.commit()
 
     else:
         # Create inactive placeholder — farmer must configure credentials later
-        # This remains inactive until credentials are provided
         data_source = FarmerDataSource(
             user_id=owner_user.user_id,
             hive_id=hive.hive_id,
             source_type="http_api",
-            is_active=False,  # Inactive until credentials are configured
+            is_active=False,
         )
         db.add(data_source)
         db.commit()
@@ -563,54 +498,11 @@ def configure_data_source(
         )
         db.add(source)
 
-    # Try to create the hive folders on the farmer's server
-    hive_folder = _safe_hive_folder_name(hive.hive_name, str(hive.hive_id))
-    
+    # Folder creation will happen automatically when first file is uploaded
     folder_created = False
     conditions_folder_created = False
     folder_creation_error = None
     conditions_folder_creation_error = None
-    
-    folder_result = create_hive_folder(api_config, hive_folder)
-    if folder_result.get("ok"):
-        folder_created = True
-    else:
-        folder_creation_error = folder_result.get("error", "Folder auto-creation not supported")
-        from api.models import SystemLog
-        import logging
-        logger = logging.getLogger("bsads")
-        logger.info(f"Hive folder creation skipped: {hive_folder} - {folder_creation_error}")
-        db.add(SystemLog(
-            level="info",
-            event_type="http_api",
-            message=f"Hive folder not auto-created: {hive_folder}",
-            details={
-                "hive_id": str(hive.hive_id),
-                "suggested_folder": hive_folder,
-                "reason": folder_creation_error
-            },
-            hive_id=hive.hive_id,
-            user_id=current_user.user_id,
-        ))
-    
-    conditions_folder_result = create_hive_conditions_folder(api_config, hive_folder)
-    if conditions_folder_result.get("ok"):
-        conditions_folder_created = True
-    else:
-        conditions_folder_creation_error = conditions_folder_result.get("error", "Conditions folder auto-creation not supported")
-        logger.info(f"Hive conditions folder creation skipped: {hive_folder} - {conditions_folder_creation_error}")
-        db.add(SystemLog(
-            level="info",
-            event_type="http_api",
-            message=f"Hive conditions folder not auto-created: {hive_folder}",
-            details={
-                "hive_id": str(hive.hive_id),
-                "suggested_folder": hive_folder,
-                "reason": conditions_folder_creation_error
-            },
-            hive_id=hive.hive_id,
-            user_id=current_user.user_id,
-        ))
     
     db.commit()
     db.refresh(source)
