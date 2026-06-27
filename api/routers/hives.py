@@ -75,7 +75,9 @@ def create_hive(
 
     # Auto-configure HTTP API data source if user has credentials
     folder_created = False
+    conditions_folder_created = False
     folder_creation_error = None
+    conditions_folder_creation_error = None
     
     if current_user.server_url and current_user.api_key:
         api_config = {
@@ -93,7 +95,7 @@ def create_hive(
         # or the farmer may manually create them. We try but don't fail if it doesn't work.
         hive_folder = _safe_hive_folder_name(hive.hive_name, str(hive.hive_id))
         
-        from api.http_connector import create_hive_folder as http_create_hive_folder
+        from api.http_connector import create_hive_folder as http_create_hive_folder, create_hive_conditions_folder
         folder_result = http_create_hive_folder(api_config, hive_folder)
         
         if folder_result.get("ok"):
@@ -114,6 +116,30 @@ def create_hive(
                     "hive_id": str(hive.hive_id),
                     "suggested_folder": hive_folder,
                     "reason": folder_creation_error
+                },
+                hive_id=hive.hive_id,
+                user_id=current_user.user_id,
+            ))
+            db.commit()
+        
+        # Try to create the conditions hive folder on the farmer's server
+        conditions_folder_result = create_hive_conditions_folder(api_config, hive_folder)
+        
+        if conditions_folder_result.get("ok"):
+            conditions_folder_created = True
+        else:
+            # This is expected if the farmer's server doesn't support conditions folder creation endpoint
+            # The folder will be created when the farmer first uploads conditions files
+            conditions_folder_creation_error = conditions_folder_result.get("error", "Conditions folder auto-creation not supported")
+            logger.info(f"Hive conditions folder creation skipped: {hive_folder} - {conditions_folder_creation_error}")
+            db.add(SystemLog(
+                level="info",
+                event_type="http_api",
+                message=f"Hive conditions folder not auto-created: {hive_folder}",
+                details={
+                    "hive_id": str(hive.hive_id),
+                    "suggested_folder": hive_folder,
+                    "reason": conditions_folder_creation_error
                 },
                 hive_id=hive.hive_id,
                 user_id=current_user.user_id,
@@ -166,6 +192,8 @@ def create_hive(
         suggested_remote_folder=suggested_folder,
         folder_created=folder_created,
         folder_creation_error=folder_creation_error,
+        conditions_folder_created=conditions_folder_created,
+        conditions_folder_creation_error=conditions_folder_creation_error,
     )
 
 

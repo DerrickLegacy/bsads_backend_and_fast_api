@@ -306,6 +306,58 @@ def create_hive_folder(config: dict, hive_name: str) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def create_hive_conditions_folder(config: dict, hive_name: str) -> dict:
+    """
+    Request the farmer's server to create a hive conditions folder.
+    
+    This is an optional endpoint - not all farmer servers may implement it.
+    Folders can also be created manually by the farmer or auto-created on first upload.
+    
+    Args:
+        config: Connection config dict with keys:
+            - api_base_url: Base URL of the farmer's server
+            - api_key: API key for authentication
+        hive_name: Name of the hive (will be sanitized for filesystem safety)
+    
+    Returns:
+        {"ok": True, "folder": "<folder_name>"} or {"ok": False, "error": "<message>"}
+    """
+    try:
+        base_url = config.get("api_base_url", "").rstrip("/")
+        base_url = _translate_localhost_url(base_url)  # Translate for Docker
+        api_key = config.get("api_key", "")
+        
+        if not base_url or not api_key:
+            return {"ok": False, "error": "api_base_url and api_key are required"}
+        
+        session = _build_session(api_key, timeout=10)
+        
+        # POST /conditions/hives/{hive_name} to create a hive conditions folder
+        response = session.post(
+            f"{base_url}/conditions/hives/{hive_name}",
+            timeout=10
+        )
+        response.raise_for_status()
+        
+        return {"ok": True, "folder": hive_name}
+    
+    except requests.exceptions.HTTPError as exc:
+        if exc.response.status_code == 404:
+            return {"ok": False, "error": "Conditions folder endpoint not supported - farmer should create folder manually"}
+        if exc.response.status_code == 401:
+            return {"ok": False, "error": "Invalid API key (401 Unauthorized)"}
+        return {"ok": False, "error": f"HTTP {exc.response.status_code}: {exc}"}
+    
+    except requests.exceptions.ConnectionError as exc:
+        return {"ok": False, "error": f"Connection failed: {exc}"}
+    
+    except requests.exceptions.Timeout as exc:
+        return {"ok": False, "error": f"Request timeout: {exc}"}
+    
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def list_conditions(config: dict, hive_name: str) -> list[str]:
     """
     List available CSV condition files from the farmer's server.
