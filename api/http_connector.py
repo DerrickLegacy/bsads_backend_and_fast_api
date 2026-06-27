@@ -28,8 +28,10 @@ def _translate_localhost_url(url: str) -> str:
     host machine (like a farmer simulation server), Docker networking requires
     using 'host.docker.internal' instead of the host's external IP.
     
+    NOTE: We only translate localhost/127.0.0.1/0.0.0.0 - NOT external IPs!
+    
     Args:
-        url: Original URL (e.g., http://196.43.168.57:8086)
+        url: Original URL (e.g., http://192.168.1.100:8086 or http://localhost:8086)
     
     Returns:
         Translated URL if needed (e.g., http://host.docker.internal:8086)
@@ -50,31 +52,13 @@ def _translate_localhost_url(url: str) -> str:
         if not host:
             return url
         
-        # Translate localhost/127.0.0.1 to host.docker.internal
+        # ONLY translate localhost/127.0.0.1/0.0.0.0 to host.docker.internal
+        # DO NOT translate external IPs (196.x, 192.168.x, etc.) - they might be real remote servers!
         if host in ('localhost', '127.0.0.1', '0.0.0.0'):
             new_host = 'host.docker.internal'
             logger.info(f"🔄 Translating {host} → {new_host} (Docker host gateway)")
             new_netloc = f"{new_host}:{parsed.port}" if parsed.port else new_host
             return urlunparse(parsed._replace(netloc=new_netloc))
-        
-        # Check if this looks like a host IP on the same machine
-        # Common patterns: 192.168.x.x, 10.x.x.x, 172.x.x.x, or public IPs like 196.x.x.x
-        # When both API and simulation server are on the same physical machine
-        if host.startswith(('192.168.', '10.', '172.16.', '172.17.', '172.18.',
-                           '172.19.', '172.20.', '172.21.', '172.22.', '172.23.',
-                           '172.24.', '172.25.', '172.26.', '172.27.', '172.28.',
-                           '172.29.', '172.30.', '172.31.', '196.', '197.')):
-            # Try to detect if we're actually trying to reach the host
-            try:
-                # Read /etc/hosts to see if we can use host.docker.internal
-                with open('/etc/hosts', 'r') as f:
-                    if 'host.docker.internal' in f.read():
-                        new_host = 'host.docker.internal'
-                        logger.info(f"🔄 Translating {host} → {new_host} (same-host detection)")
-                        new_netloc = f"{new_host}:{parsed.port}" if parsed.port else new_host
-                        return urlunparse(parsed._replace(netloc=new_netloc))
-            except Exception as e:
-                logger.debug(f"Could not check /etc/hosts: {e}")
         
     except Exception as e:
         logger.warning(f"URL translation failed: {e}")
