@@ -111,7 +111,7 @@ def test_connection(config: dict) -> dict:
     """
     try:
         base_url = config.get("api_base_url", "").rstrip("/")
-        base_url = _translate_localhost_url(base_url)  # Translate for Docker
+        # NO URL translation - use the exact URL provided, just like assign-token does!
         api_key = config.get("api_key", "")
         
         if not base_url:
@@ -164,7 +164,7 @@ def list_recordings(config: dict, hive_id: str = None, hive_name: str = None) ->
         requests.exceptions.RequestException: On connection or HTTP errors
     """
     base_url = config.get("api_base_url", "").rstrip("/")
-    base_url = _translate_localhost_url(base_url)  # Translate for Docker
+    # NO URL translation - use the exact URL provided, just like assign-token does!
     api_key = config.get("api_key", "")
     
     if not base_url or not api_key:
@@ -203,7 +203,7 @@ def download_file_bytes(config: dict, filepath: str) -> bytes:
         requests.exceptions.RequestException: On connection or HTTP errors
     """
     base_url = config.get("api_base_url", "").rstrip("/")
-    base_url = _translate_localhost_url(base_url)  # Translate for Docker
+    # NO URL translation - use the exact URL provided, just like assign-token does!
     api_key = config.get("api_key", "")
     
     if not base_url or not api_key:
@@ -256,7 +256,7 @@ def create_hive_folder(config: dict, hive_name: str) -> dict:
     """
     try:
         base_url = config.get("api_base_url", "").rstrip("/")
-        base_url = _translate_localhost_url(base_url)  # Translate for Docker
+        # NO URL translation - use the exact URL provided, just like assign-token does!
         api_key = config.get("api_key", "")
         
         if not base_url or not api_key:
@@ -308,7 +308,7 @@ def create_hive_conditions_folder(config: dict, hive_name: str) -> dict:
     """
     try:
         base_url = config.get("api_base_url", "").rstrip("/")
-        base_url = _translate_localhost_url(base_url)  # Translate for Docker
+        # NO URL translation - use the exact URL provided, just like assign-token does!
         api_key = config.get("api_key", "")
         
         if not base_url or not api_key:
@@ -359,7 +359,7 @@ def list_conditions(config: dict, hive_name: str) -> list[str]:
         requests.exceptions.RequestException: On connection or HTTP errors
     """
     base_url = config.get("api_base_url", "").rstrip("/")
-    base_url = _translate_localhost_url(base_url)  # Translate for Docker
+    # NO URL translation - use the exact URL provided, just like assign-token does!
     api_key = config.get("api_key", "")
     
     if not base_url or not api_key:
@@ -393,7 +393,7 @@ def download_condition_file(config: dict, filepath: str) -> str:
         requests.exceptions.RequestException: On connection or HTTP errors
     """
     base_url = config.get("api_base_url", "").rstrip("/")
-    base_url = _translate_localhost_url(base_url)  # Translate for Docker
+    # NO URL translation - use the exact URL provided, just like assign-token does!
     api_key = config.get("api_key", "")
     
     if not base_url or not api_key:
