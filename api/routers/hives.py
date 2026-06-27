@@ -59,6 +59,11 @@ def create_hive(
         if (body.owner_id and current_user.role == "admin")
         else current_user.user_id
     )
+    
+    # Get the actual owner user (could be current user or another user if admin is creating)
+    owner_user = db.query(User).filter(User.user_id == owner_id).first()
+    if not owner_user:
+        raise HTTPException(status_code=404, detail="Owner user not found")
 
     hive = Hive(
         owner_id=owner_id,
@@ -79,10 +84,10 @@ def create_hive(
     folder_creation_error = None
     conditions_folder_creation_error = None
     
-    if current_user.server_url and current_user.api_key:
+    if owner_user.server_url and owner_user.api_key:
         api_config = {
-            "api_base_url": current_user.server_url.rstrip("/"),
-            "api_key": current_user.api_key,
+            "api_base_url": owner_user.server_url.rstrip("/"),
+            "api_key": owner_user.api_key,
         }
 
         # Test connection
@@ -118,7 +123,7 @@ def create_hive(
                     "reason": folder_creation_error
                 },
                 hive_id=hive.hive_id,
-                user_id=current_user.user_id,
+                user_id=owner_user.user_id,
             ))
             db.commit()
         
@@ -142,15 +147,15 @@ def create_hive(
                     "reason": conditions_folder_creation_error
                 },
                 hive_id=hive.hive_id,
-                user_id=current_user.user_id,
+                user_id=owner_user.user_id,
             ))
             db.commit()
 
         data_source = FarmerDataSource(
-            user_id=current_user.user_id,
+            user_id=owner_user.user_id,
             hive_id=hive.hive_id,
             source_type="http_api",
-            source_path=current_user.server_url,
+            source_path=owner_user.server_url,
             connection_config=api_config,
             is_active=True,  # Always active - poller will handle connection errors gracefully
         )
@@ -161,7 +166,7 @@ def create_hive(
         # Create inactive placeholder — farmer must configure credentials later
         # This remains inactive until credentials are provided
         data_source = FarmerDataSource(
-            user_id=current_user.user_id,
+            user_id=owner_user.user_id,
             hive_id=hive.hive_id,
             source_type="http_api",
             is_active=False,  # Inactive until credentials are configured
@@ -173,10 +178,10 @@ def create_hive(
     # The farmer's server organizes recordings by: recordings/<api_key>/<hive_name>/
     # If hive_name is empty, fallback to hive_id.
     suggested_folder = "/home/farmer/recordings"
-    if current_user.api_key:
+    if owner_user.api_key:
         hive_folder = _safe_hive_folder_name(hive.hive_name, str(hive.hive_id))
         suggested_folder = (
-            f"/home/farmer/recordings/{current_user.api_key}/{hive_folder}"
+            f"/home/farmer/recordings/{owner_user.api_key}/{hive_folder}"
         )
 
     return HiveCreateResponse(
