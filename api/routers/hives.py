@@ -534,7 +534,7 @@ def configure_data_source(
         "api_key": body.api_key,
     }
 
-    from api.http_connector import test_connection
+    from api.http_connector import test_connection, create_hive_folder, create_hive_conditions_folder
 
     connection_test = test_connection(api_config)
 
@@ -558,6 +558,55 @@ def configure_data_source(
         )
         db.add(source)
 
+    # Try to create the hive folders on the farmer's server
+    hive_folder = _safe_hive_folder_name(hive.hive_name, str(hive.hive_id))
+    
+    folder_created = False
+    conditions_folder_created = False
+    folder_creation_error = None
+    conditions_folder_creation_error = None
+    
+    folder_result = create_hive_folder(api_config, hive_folder)
+    if folder_result.get("ok"):
+        folder_created = True
+    else:
+        folder_creation_error = folder_result.get("error", "Folder auto-creation not supported")
+        from api.models import SystemLog
+        import logging
+        logger = logging.getLogger("bsads")
+        logger.info(f"Hive folder creation skipped: {hive_folder} - {folder_creation_error}")
+        db.add(SystemLog(
+            level="info",
+            event_type="http_api",
+            message=f"Hive folder not auto-created: {hive_folder}",
+            details={
+                "hive_id": str(hive.hive_id),
+                "suggested_folder": hive_folder,
+                "reason": folder_creation_error
+            },
+            hive_id=hive.hive_id,
+            user_id=current_user.user_id,
+        ))
+    
+    conditions_folder_result = create_hive_conditions_folder(api_config, hive_folder)
+    if conditions_folder_result.get("ok"):
+        conditions_folder_created = True
+    else:
+        conditions_folder_creation_error = conditions_folder_result.get("error", "Conditions folder auto-creation not supported")
+        logger.info(f"Hive conditions folder creation skipped: {hive_folder} - {conditions_folder_creation_error}")
+        db.add(SystemLog(
+            level="info",
+            event_type="http_api",
+            message=f"Hive conditions folder not auto-created: {hive_folder}",
+            details={
+                "hive_id": str(hive.hive_id),
+                "suggested_folder": hive_folder,
+                "reason": conditions_folder_creation_error
+            },
+            hive_id=hive.hive_id,
+            user_id=current_user.user_id,
+        ))
+    
     db.commit()
     db.refresh(source)
 
@@ -567,6 +616,10 @@ def configure_data_source(
         source_type="http_api",
         api_base_url=body.api_base_url,
         connection_test=connection_test,
+        folder_created=folder_created,
+        folder_creation_error=folder_creation_error,
+        conditions_folder_created=conditions_folder_created,
+        conditions_folder_creation_error=conditions_folder_creation_error,
     )
 
 

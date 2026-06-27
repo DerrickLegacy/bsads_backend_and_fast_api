@@ -246,6 +246,10 @@ class DataSourceConfigureResponse(BaseModel):
     remote_folder: Optional[str] = None
     api_base_url: Optional[str] = None
     connection_test: dict
+    folder_created: bool = False
+    folder_creation_error: Optional[str] = None
+    conditions_folder_created: bool = False
+    conditions_folder_creation_error: Optional[str] = None
 
     class Config:
         from_attributes = True
