@@ -23,7 +23,7 @@ import requests
 from sqlalchemy.orm import Session
 
 from api.database import SessionLocal
-from api.models import AudioSource, Hive, HiveCondition, User
+from api.models import AudioSource, Hive, HiveCondition, User, EnvironmentalData
 from api.system_logger import exc_details, log_standalone
 
 # Concurrency settings
@@ -269,6 +269,7 @@ def _process_csv_content(
     
     # Batch processing for efficiency
     new_conditions = []
+    new_environmental = []
     
     for row in csv_reader:
         records_processed += 1
@@ -277,13 +278,19 @@ def _process_csv_content(
             # Parse date
             recorded_at = datetime.strptime(row['Date'], "%Y-%m-%d %H:%M:%S")
             
-            # Check if record already exists (deduplication)
-            existing = db.query(HiveCondition).filter(
+            # Check if HiveCondition record already exists (deduplication)
+            existing_hive_condition = db.query(HiveCondition).filter(
                 HiveCondition.hive_id == hive.hive_id,
                 HiveCondition.recorded_at == recorded_at
             ).first()
             
-            if existing:
+            # Check if EnvironmentalData record already exists
+            existing_environmental = db.query(EnvironmentalData).filter(
+                EnvironmentalData.hive_id == hive.hive_id,
+                EnvironmentalData.recorded_at == recorded_at
+            ).first()
+            
+            if existing_hive_condition and existing_environmental:
                 records_duplicate += 1
                 continue  # Skip duplicate record
             
@@ -305,45 +312,59 @@ def _process_csv_content(
                 AudioSource.captured_at == recorded_at
             ).first()
             
-            # Create condition record
-            condition = HiveCondition(
-                hive_id=hive.hive_id,
-                audio_id=audio.audio_id if audio else None,
-                temp_honey=temp_honey,
-                temp_brood=temp_brood,
-                temp_exterior=temp_exterior,
-                humidity_honey=humidity_honey,
-                humidity_brood=humidity_brood,
-                humidity_exterior=humidity_exterior,
-                recorded_at=recorded_at
-            )
+            if not existing_hive_condition:
+                # Create condition record
+                condition = HiveCondition(
+                    hive_id=hive.hive_id,
+                    audio_id=audio.audio_id if audio else None,
+                    temp_honey=temp_honey,
+                    temp_brood=temp_brood,
+                    temp_exterior=temp_exterior,
+                    humidity_honey=humidity_honey,
+                    humidity_brood=humidity_brood,
+                    humidity_exterior=humidity_exterior,
+                    recorded_at=recorded_at
+                )
+                new_conditions.append(condition)
             
-            new_conditions.append(condition)
+            if not existing_environmental:
+                # Create environmental data record using honey zone values (first values)
+                env_data = EnvironmentalData(
+                    hive_id=hive.hive_id,
+                    temperature=temp_honey,
+                    humidity=humidity_honey,
+                    recorded_at=recorded_at
+                )
+                new_environmental.append(env_data)
+            
             records_new += 1
-        
+            
         except Exception as exc:
             # Log error but continue processing other rows
             log_standalone("warning", "conditions_poller",
-                           f"Error processing CSV row: {exc}",
-                           hive_id=str(hive.hive_id),
-                           details={"row": row, "error": str(exc)})
+                f"Error processing CSV row: {exc}",
+                hive_id=str(hive.hive_id),
+                details={"row": row, "error": str(exc)})
             continue
     
     # Batch insert all new records
-    if new_conditions:
+    if new_conditions or new_environmental:
         try:
-            db.bulk_save_objects(new_conditions)
+            if new_conditions:
+                db.bulk_save_objects(new_conditions)
+            if new_environmental:
+                db.bulk_save_objects(new_environmental)
             db.commit()
             
             log_standalone("info", "conditions_poller",
-                           f"💾 Saved {len(new_conditions)} new condition records to database",
-                           hive_id=str(hive.hive_id))
+                f"💾 Saved {len(new_conditions)} HiveCondition and {len(new_environmental)} EnvironmentalData records to database",
+                hive_id=str(hive.hive_id))
         except Exception as exc:
             db.rollback()
             log_standalone("error", "conditions_poller",
-                           f"Failed to save condition records: {exc}",
-                           hive_id=str(hive.hive_id),
-                           details=exc_details(exc))
+                f"Failed to save condition records: {exc}",
+                hive_id=str(hive.hive_id),
+                details=exc_details(exc))
             raise
     
     return {
