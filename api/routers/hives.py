@@ -337,6 +337,7 @@ def get_hive(
     metric_series = [
         MetricPoint(
             time_label=r.recorded_at.strftime("%H:%M") if r.recorded_at else "",
+            recorded_at=r.recorded_at.isoformat() if r.recorded_at else None,
             temperature_c=float(r.temperature) if r.temperature is not None else 0.0,
             humidity_percent=float(r.humidity) if r.humidity is not None else 0.0,
         )

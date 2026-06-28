@@ -517,6 +517,7 @@ class MobileAlertDetailResponse(BaseModel):
 # ---------------------------------------------------------------------------
 class MetricPoint(BaseModel):
     time_label: str
+    recorded_at: str | None = None
     temperature_c: float
     humidity_percent: float
 
