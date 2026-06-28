@@ -373,3 +373,50 @@ def download_condition_file(config: dict, filepath: str) -> str:
     
     # Return as text (CSV)
     return response.text
+
+
+def delete_condition_file(config: dict, filepath: str) -> dict:
+    """
+    Delete a single CSV condition file from the farmer's server after processing.
+    
+    Args:
+        config: Connection config dict with keys:
+            - api_base_url: Base URL of the farmer's server
+            - api_key: API key for authentication
+        filepath: Path to the file (e.g., "Hive01/data.csv")
+    
+    Returns:
+        {"ok": True, "detail": "..."} or {"ok": False, "error": "<message>"}
+    """
+    try:
+        base_url = config.get("api_base_url", "").rstrip("/")
+        base_url = _translate_localhost_url(base_url)  # Translate for Docker
+        api_key = config.get("api_key", "")
+        
+        if not base_url or not api_key:
+            return {"ok": False, "error": "api_base_url and api_key are required"}
+        
+        session = _build_session(api_key, timeout=10)
+        response = session.delete(
+            f"{base_url}/conditions/{filepath}",
+            timeout=10
+        )
+        response.raise_for_status()
+        
+        return {"ok": True, "detail": "File deleted successfully"}
+    
+    except requests.exceptions.HTTPError as exc:
+        if exc.response.status_code == 404:
+            return {"ok": False, "error": "File not found"}
+        if exc.response.status_code == 401:
+            return {"ok": False, "error": "Invalid API key (401 Unauthorized)"}
+        return {"ok": False, "error": f"HTTP {exc.response.status_code}: {exc}"}
+    
+    except requests.exceptions.ConnectionError as exc:
+        return {"ok": False, "error": f"Connection failed: {exc}"}
+    
+    except requests.exceptions.Timeout as exc:
+        return {"ok": False, "error": f"Request timeout: {exc}"}
+    
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}

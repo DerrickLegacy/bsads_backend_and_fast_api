@@ -46,7 +46,7 @@ MODEL_TYPE = os.getenv("MODEL_TYPE", "gradient_boosting").lower().strip()
 SAMPLE_RATE = 22050
 DURATION    = 3                 # seconds — matches training (DURATION=3)
 N_MELS      = 128
-N_FFT       = 2048
+N_FFT       = 2048s
 HOP_LENGTH  = 512
 DEVICE      = torch.device("cpu")   # HF free-tier has no GPU
 

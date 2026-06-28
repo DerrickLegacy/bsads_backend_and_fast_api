@@ -187,7 +187,7 @@ def _fetch_and_process_conditions(farmer: User, hive: Hive, db: Session) -> Dict
     hive_name = hive.hive_name
     
     # List CSV files using http_connector (handles localhost translation)
-    from api.http_connector import list_conditions, download_condition_file
+    from api.http_connector import list_conditions, download_condition_file, delete_condition_file
     
     try:
         csv_files = list_conditions(config, hive_name)
@@ -228,7 +228,18 @@ def _fetch_and_process_conditions(farmer: User, hive: Hive, db: Session) -> Dict
             total_stats['processed'] += stats['processed']
             total_stats['new'] += stats['new']
             total_stats['duplicate'] += stats['duplicate']
-        
+            
+            # Delete the file after successful processing
+            delete_result = delete_condition_file(config, csv_file)
+            if delete_result['ok']:
+                log_standalone("info", "conditions_poller",
+                               f"Successfully deleted file {csv_file}",
+                               hive_id=str(hive.hive_id))
+            else:
+                log_standalone("warning", "conditions_poller",
+                               f"Failed to delete file {csv_file}: {delete_result['error']}",
+                               hive_id=str(hive.hive_id))
+            
         except Exception as exc:
             log_standalone("error", "conditions_poller",
                            f"Failed to process CSV file {csv_file}: {exc}",
