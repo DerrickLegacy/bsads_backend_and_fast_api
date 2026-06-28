@@ -258,9 +258,9 @@ def _process_csv_content(
     """
     Process CSV content and insert records with deduplication.
     
-    CSV Format:
-        Date,Temperature,Humidity
-        2026-06-22 10:00:00,28.5*34.2*25.1,60.3*75.0*45.2
+    Handles two CSV formats:
+    1. With headers: Date,Temperature,Humidity
+    2. Without headers (actual data format): "datetime","temp*brood*ext","hum*brood*ext",...
     
     Temperature format: honey*brood*exterior
     Humidity format: honey*brood*exterior
@@ -268,9 +268,34 @@ def _process_csv_content(
     Returns:
         {"processed": int, "new": int, "duplicate": int}
     """
-    # Parse CSV
+    # Log CSV content for debugging
+    log_standalone("info", "conditions_poller",
+                   f"CSV content length: {len(csv_content)} chars",
+                   hive_id=str(hive.hive_id),
+                   details={"csv_sample": csv_content[:500] if csv_content else "empty"})
+    
+    # Parse CSV - check if it has headers
     try:
-        csv_reader = csv.DictReader(io.StringIO(csv_content))
+        lines = csv_content.strip().split('\n')
+        if not lines:
+            return {"processed": 0, "new": 0, "duplicate": 0}
+        
+        # Check if first line looks like headers
+        first_line = lines[0].strip()
+        has_headers = 'Date' in first_line and 'Temperature' in first_line and 'Humidity' in first_line
+        
+        if has_headers:
+            csv_reader = csv.DictReader(io.StringIO(csv_content))
+            log_standalone("info", "conditions_poller",
+                           f"CSV with headers: {csv_reader.fieldnames}",
+                           hive_id=str(hive.hive_id))
+        else:
+            # No headers - use csv.reader and map columns manually
+            csv_reader = csv.reader(io.StringIO(csv_content))
+            log_standalone("info", "conditions_poller",
+                           "CSV without headers - using manual column mapping",
+                           hive_id=str(hive.hive_id))
+        
     except Exception as exc:
         raise Exception(f"Failed to parse CSV: {exc}")
     
@@ -283,10 +308,28 @@ def _process_csv_content(
     
     for row in csv_reader:
         records_processed += 1
+        log_standalone("info", "conditions_poller",
+                       f"Processing row {records_processed}: {row}",
+                       hive_id=str(hive.hive_id))
         
         try:
+            # Parse date and values based on format
+            if has_headers:
+                # Format 1: with headers (DictReader)
+                date_str = row['Date']
+                temp_str = row['Temperature']
+                humidity_str = row['Humidity']
+            else:
+                # Format 2: without headers (list format)
+                # Format: ["datetime", "temp*brood*ext", "hum*brood*ext", ...]
+                if len(row) < 3:
+                    raise ValueError(f"Row has only {len(row)} columns, need at least 3")
+                date_str = row[0].strip('"')  # Remove quotes if present
+                temp_str = row[1].strip('"')
+                humidity_str = row[2].strip('"')
+            
             # Parse date
-            recorded_at = datetime.strptime(row['Date'], "%Y-%m-%d %H:%M:%S")
+            recorded_at = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
             
             # Check if record already exists (deduplication)
             existing = db.query(HiveCondition).filter(
@@ -296,18 +339,21 @@ def _process_csv_content(
             
             if existing:
                 records_duplicate += 1
+                log_standalone("info", "conditions_poller",
+                               f"Skipping duplicate record at {recorded_at}",
+                               hive_id=str(hive.hive_id))
                 continue  # Skip duplicate record
             
             # Parse temperature (honey*brood*exterior)
-            temps = row['Temperature'].split('*')
+            temps = temp_str.split('*')
             if len(temps) != 3:
-                raise ValueError(f"Temperature must have 3 values, got {len(temps)}")
+                raise ValueError(f"Temperature must have 3 values separated by *, got: '{temp_str}'")
             temp_honey, temp_brood, temp_exterior = [float(t) for t in temps]
             
             # Parse humidity (honey*brood*exterior)
-            humidities = row['Humidity'].split('*')
+            humidities = humidity_str.split('*')
             if len(humidities) != 3:
-                raise ValueError(f"Humidity must have 3 values, got {len(humidities)}")
+                raise ValueError(f"Humidity must have 3 values separated by *, got: '{humidity_str}'")
             humidity_honey, humidity_brood, humidity_exterior = [float(h) for h in humidities]
             
             # Try to find matching audio file by timestamp
@@ -331,14 +377,21 @@ def _process_csv_content(
             
             new_conditions.append(condition)
             records_new += 1
+            log_standalone("info", "conditions_poller",
+                           f"Added new record for {recorded_at}: temp={temp_honey}/{temp_brood}/{temp_exterior}, humidity={humidity_honey}/{humidity_brood}/{humidity_exterior}",
+                           hive_id=str(hive.hive_id))
         
         except Exception as exc:
             # Log error but continue processing other rows
             log_standalone("warning", "conditions_poller",
-                           f"Error processing CSV row: {exc}",
+                           f"Error processing CSV row {records_processed}: {exc}",
                            hive_id=str(hive.hive_id),
                            details={"row": row, "error": str(exc)})
             continue
+    
+    log_standalone("info", "conditions_poller",
+                   f"Processed {records_processed} rows, {records_new} new, {records_duplicate} duplicates",
+                   hive_id=str(hive.hive_id))
     
     # Batch insert all new records
     if new_conditions:
