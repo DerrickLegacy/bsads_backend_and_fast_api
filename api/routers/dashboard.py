@@ -55,7 +55,7 @@ def get_dashboard(
             counts.pest_infested += 1
         elif state == "external_noise":
             counts.external_noise += 1
-        elif state == "uncertain":
+        elif state == "uncertain" or state == "unknown":
             counts.uncertain += 1
         else:
             counts.other += 1
