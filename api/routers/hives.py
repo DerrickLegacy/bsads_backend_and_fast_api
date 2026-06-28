@@ -269,6 +269,7 @@ def list_hives(
 @router.get("/{hive_id}", response_model=HiveDetailResponse)
 def get_hive(
     hive_id: str,
+    limit: int = 720,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -322,12 +323,15 @@ def get_hive(
         alert_message = latest_alert.recommended_action or "No details available"
         acknowledged = latest_alert.action_status == "acknowledged"
 
-    # Last 7 environmental readings for the metric chart
+    # Recent environmental readings for the metric chart. Defaults to enough
+    # rows to cover ~30 days of hourly readings so the 24h/7d/30d range filter
+    # on the mobile chart has real data to slice instead of always seeing the
+    # same handful of points.
     env_rows = (
         db.query(EnvironmentalData)
         .filter(EnvironmentalData.hive_id == hive_id)
         .order_by(EnvironmentalData.recorded_at.desc())
-        .limit(7)
+        .limit(limit)
         .all()
     )
     metric_series = [
